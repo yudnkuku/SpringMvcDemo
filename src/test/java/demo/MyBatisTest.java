@@ -4,7 +4,6 @@ import org.junit.Test;
 import spring.dao.DBlog;
 import spring.dao.DEnum;
 import spring.dao.DStudent;
-import spring.dao.IStudentDao;
 import spring.entity.Blog;
 import spring.entity.LevelEnum;
 import spring.entity.Student;

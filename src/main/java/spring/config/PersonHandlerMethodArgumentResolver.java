@@ -1,12 +1,9 @@
 package spring.config;
 
-import com.fasterxml.jackson.dataformat.xml.util.TypeUtil;
 import com.google.gson.Gson;
 import org.springframework.core.MethodParameter;
 import org.springframework.http.MediaType;
 import org.springframework.http.server.ServletServerHttpRequest;
-import org.springframework.util.StreamUtils;
-import org.springframework.util.TypeUtils;
 import org.springframework.web.bind.support.WebDataBinderFactory;
 import org.springframework.web.context.request.NativeWebRequest;
 import org.springframework.web.method.support.HandlerMethodArgumentResolver;

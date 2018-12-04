@@ -4,8 +4,6 @@ package spring.dao;
 import org.apache.ibatis.session.SqlSession;
 import spring.entity.Student;
 
-import java.util.List;
-
 public class DStudent extends DBase {
 
     public Student getStudentInfoByName(String name) {

@@ -1,7 +1,5 @@
 package demo;
 
-import org.junit.Test;
-
 public class ClassLoaderTest {
 
     public static void main(String[] args) {

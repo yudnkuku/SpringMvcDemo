@@ -1,7 +1,5 @@
 package demo;
 
-import org.junit.Test;
-
 public class StaticTest extends SuperStaticTest{
 
 //    private static int a = method();

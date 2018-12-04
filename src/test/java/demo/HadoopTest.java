@@ -6,7 +6,6 @@ import org.apache.hadoop.fs.FsUrlStreamHandlerFactory;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.fs.TestDFSIO;
 import org.apache.hadoop.io.IOUtils;
-import org.apache.hadoop.util.Progressable;
 import org.junit.Test;
 
 import java.io.*;

@@ -1,7 +1,6 @@
 package demo.dynamicProxy;
 
 import org.junit.Test;
-import sun.misc.ClassLoaderUtil;
 
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
