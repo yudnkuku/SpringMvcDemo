@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Config 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="spring.dao.IEnumDao">
+
+    <insert id="addLevel" parameterType="levelEnum">
+        insert into tb_level
+        (level_value)
+        values
+        (#{level_value})
+    </insert>
+
+</mapper>

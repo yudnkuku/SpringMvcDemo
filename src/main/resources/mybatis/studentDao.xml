@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Config 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="spring.dao.IStudentDao">
+
+    <select id="getStudentInfoByName" parameterType="java.lang.String" resultType="student">
+        select
+          student_id        as id,
+          student_name      as name
+        from student
+        where student_name=#{0}
+    </select>
+
+    <select id="getStudentInfoByNameAndClass" resultMap="studentInfo">
+        select
+          student.student_id,student.student_name,
+          class.class_id,class.class_name,
+          teacher.teacher_id,teacher.teacher_name,teacher.teacher_class_id
+        from student
+        left outer join class
+        on student.student_class_id=class.class_id
+        left outer join teacher
+        on class.class_id=teacher.teacher_class_id
+        where student.student_name=#{student} and class.class_name=#{class}
+    </select>
+
+    <resultMap id="studentInfo" type="spring.entity.Student">
+        <id property="id" column="student_id"/>
+        <result property="name" column="student_name"/>
+        <!--一对一关系-->
+        <association property="sClass" javaType="spring.entity.Class">
+            <id property="id" column="class_id"/>
+            <result property="name" column="class_name"/>
+        </association>
+        <!--一对多关系-->
+        <collection property="teachers" ofType="spring.entity.Teacher">
+            <id property="id" column="teacher_id"/>
+            <result property="name" column="teacher_name"/>
+            <result property="classId" column="teacher_class_id"/>
+        </collection>
+    </resultMap>
+    
+    <insert id="addStudent" parameterType="student" useGeneratedKeys="true"
+            keyProperty="id">
+        insert into student
+        (student_name)
+        values
+        (#{name})
+    </insert>
+
+</mapper>

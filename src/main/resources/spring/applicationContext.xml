@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:context="http://www.springframework.org/schema/context"
+       xmlns:tx="http://www.springframework.org/schema/tx" xmlns:aop="http://www.springframework.org/schema/aop"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd
+                            http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context.xsd
+                            http://www.springframework.org/schema/tx http://www.springframework.org/schema/tx/spring-tx.xsd http://www.springframework.org/schema/aop http://www.springframework.org/schema/aop/spring-aop.xsd">
+
+    <bean id="lazyBean" class="spring.bean.LazyBean" init-method="init" lazy-init="default" scope="prototype"/>
+    <bean id="defautlBean" class="spring.bean.PreInstantiationBean">
+        <property name="id" value="10"/>
+        <property name="name" value="hello"/>
+    </bean>
+
+    <!--<bean class="spring.config.BeanPostProcessorImpl"/>-->
+
+    <bean id="customMethodRep" class="spring.bean.CustomMethodReplacer"/>
+
+    <bean id="lookupBean" class="spring.bean.LookupMethod">
+        <lookup-method name="createLazyBean" bean="lazyBean"/>
+        <replaced-method name="getValue" replacer="customMethodRep"/>
+    </bean>
+
+    <context:component-scan base-package="spring"/>
+
+    <!--jdbc configuration -->
+    <context:property-placeholder location="classpath:jdbc.properties"/>
+
+    <bean id="dataSource" class="org.apache.commons.dbcp.BasicDataSource" destroy-method="close">
+        <property name="url" value="${url}"/>
+        <property name="driverClassName" value="${driverClassName}"/>
+        <property name="username" value="${username}"/>
+        <property name="password" value="${password}"/>
+    </bean>
+
+    <bean id="jdbcTemplate" class="org.springframework.jdbc.core.JdbcTemplate">
+        <constructor-arg name="dataSource" ref="dataSource"/>
+    </bean>
+
+    <bean id="txManager" class="org.springframework.jdbc.datasource.DataSourceTransactionManager">
+        <property name="dataSource" ref="dataSource"/>
+    </bean>
+
+    <tx:annotation-driven transaction-manager="txManager"/>
+
+    <bean id="helloService" class="spring.service.impl.HelloServiceImpl">
+        <property name="name" value="deacon"/>
+    </bean>
+
+    <bean id="myFactoryBean" class="spring.config.MyFactoryBean">
+        <property name="interfaceName" value="spring.service.HelloService"/>
+        <property name="target" ref="helloService"/>
+    </bean>
+
+    <bean id="clientService" class="spring.bean.ClientService"/>
+
+    <bean id="factoryMethod" class="spring.bean.ClientService" factory-method="newInstance"/>
+
+    <bean id="beanFactoryMethod" factory-bean="clientService" factory-method="createInstance"/>
+
+</beans>

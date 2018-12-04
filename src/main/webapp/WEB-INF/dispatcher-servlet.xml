@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xmlns:context="http://www.springframework.org/schema/context"
+       xmlns:mvc="http://www.springframework.org/schema/mvc"
+       xmlns:p="http://www.springframework.org/schema/p"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd
+                            http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context.xsd
+                            http://www.springframework.org/schema/mvc http://www.springframework.org/schema/mvc/spring-mvc.xsd">
+    <!--jsp视图解析器配置-->
+    <!--<bean class="org.springframework.web.servlet.view.InternalResourceViewResolver">-->
+        <!--<property name="prefix" value="/WEB-INF/view/"/>-->
+        <!--<property name="suffix" value=".jsp"/>-->
+    <!--</bean>-->
+    <bean id="multipartResolver" class="org.springframework.web.multipart.commons.CommonsMultipartResolver">
+        <property name="maxUploadSize" value="104857600"/>
+        <property name="maxInMemorySize" value="4096"/>
+        <property name="defaultEncoding" value="utf-8"/>
+    </bean>
+
+    <bean id="freemarkerConfig" class="org.springframework.web.servlet.view.freemarker.FreeMarkerConfigurer">
+        <property name="templateLoaderPath" value="/WEB-INF/freemarker/"/>
+    </bean>
+
+    <bean id="freemarkerViewResolver" class="org.springframework.web.servlet.view.freemarker.FreeMarkerViewResolver">
+        <property name="suffix" value=".ftl"/>
+        <property name="contentType" value="text/html;charset=UTF-8"/>
+        <!--<property name="order" value="0"/>-->
+    </bean>
+
+    <bean id="internalViewResolver" class="org.springframework.web.servlet.view.InternalResourceViewResolver">
+        <property name="prefix" value="/WEB-INF/view/"/>
+        <property name="suffix" value=".jsp"/>
+        <!--<property name="order" value="1"/>-->
+    </bean>
+
+    <!--<bean id="contentNegotiationManager" class="org.springframework.web.accept.ContentNegotiationManagerFactoryBean">-->
+        <!--<property name="mediaTypes">-->
+            <!--<value>-->
+                <!--json=application/json-->
+                <!--xml=application/xml-->
+                <!--html=text/html-->
+            <!--</value>-->
+        <!--</property>-->
+        <!--<property name="defaultContentTypeStrategy">-->
+            <!--<bean class="org.springframework.web.accept.ParameterContentNegotiationStrategy">-->
+                <!--<constructor-arg name="mediaTypes">-->
+                    <!--<map>-->
+                        <!--<entry key="json" value="application/json"/>-->
+                        <!--<entry key="xml" value="application/xml"/>-->
+                        <!--<entry key="html" value="text/html"/>-->
+                    <!--</map>-->
+                <!--</constructor-arg>-->
+            <!--</bean>-->
+        <!--</property>-->
+    <!--</bean>-->
+    <bean id="contentNegotiationManager" class="org.springframework.web.accept.ContentNegotiationManager">
+        <constructor-arg name="strategies">
+            <list>
+                <bean class="org.springframework.web.accept.ParameterContentNegotiationStrategy">
+                    <constructor-arg name="mediaTypes">
+                        <map>
+                            <entry key="json" value="application/json"/>
+                            <entry key="xml" value="application/xml"/>
+                            <entry key="html" value="text/html"/>
+                        </map>
+                    </constructor-arg>
+                </bean>
+                <bean class="org.springframework.web.accept.PathExtensionContentNegotiationStrategy">
+                    <constructor-arg name="mediaTypes">
+                        <map>
+                            <entry key="json" value="application/json"/>
+                            <entry key="xml" value="application/xml"/>
+                            <entry key="html" value="text/html"/>
+                        </map>
+                    </constructor-arg>
+                </bean>
+            </list>
+        </constructor-arg>
+    </bean>
+
+    <bean id="contentNegotiatingViewResolver" class="org.springframework.web.servlet.view.ContentNegotiatingViewResolver">
+        <property name="contentNegotiationManager" ref="contentNegotiationManager"/>
+        <property name="viewResolvers">
+            <list>
+                <ref bean="internalViewResolver"/>
+                <ref bean="freemarkerViewResolver"/>
+            </list>
+        </property>
+
+        <property name="defaultViews">
+            <list>
+                <bean class="org.springframework.web.servlet.view.json.MappingJackson2JsonView"/>
+                <bean class="org.springframework.web.servlet.view.xml.MappingJackson2XmlView"/>
+            </list>
+        </property>
+    </bean>
+
+    <mvc:annotation-driven content-negotiation-manager="contentNegotiationManager">
+        <mvc:path-matching suffix-pattern="false"/>
+        <mvc:argument-resolvers>
+            <bean class="spring.config.PersonHandlerMethodArgumentResolver"/>
+        </mvc:argument-resolvers>
+    </mvc:annotation-driven>
+
+    <!--静态资源交给tomcat默认servlet-->
+    <mvc:default-servlet-handler/>
+
+
+    <!--扫描指定包下的component-->
+    <context:component-scan base-package="spring"/>
+
+    <!--国际化文件-->
+    <bean id="messageSource" class="org.springframework.context.support.ResourceBundleMessageSource">
+        <property name="basename" value="message"/>
+    </bean>
+</beans>
