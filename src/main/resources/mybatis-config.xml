@@ -6,9 +6,8 @@
     <properties resource="jdbc.properties"/>
     <!--调试使用-->
     <settings>
-        <setting name="cacheEnabled" value="true"/>
-        <setting name="logImpl" value="STDOUT_LOGGING"/>
-        <!--<setting name="logImpl" value="LOG4J"/>-->
+        <setting name="cacheEnabled" value="false"/>
+        <!--<setting name="logImpl" value="SLF4J"/>-->
     </settings>
 
     <typeAliases>

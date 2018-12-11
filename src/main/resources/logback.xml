@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<configuration scan="false" scanPeriod="60000" debug="false">
+    <!--<property name="USER_HOME" value="D:"/>-->
+    <!--定义appender，在控制台输出日志信息-->
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <layout class="ch.qos.logback.classic.PatternLayout">
+            <pattern>%d{yyyy-MM-dd HH:mm:sss} [%-10.20thread]  %highlight(%-8level) %-5logger{20}  - %msg%n</pattern>
+        </layout>
+        <!--定义filter，在appender的level属性基础上再次进行过滤，有两种filter实现：LevelFilter&ThresholdFilter-->
+        <!--<filter class="ch.qos.logback.classic.filter.LevelFilter">-->
+            <!--<level>INFO</level>-->
+            <!--<onMatch>ACCEPT</onMatch>-->
+            <!--<onMismatch>DENY</onMismatch>-->
+        <!--</filter>-->
+        <!--<filter class="ch.qos.logback.classic.filter.ThresholdFilter">-->
+            <!--<level>INFO</level>-->
+        <!--</filter>-->
+    </appender>
+
+    <!--定义FILE appender，将日志输出到文件-->
+    <timestamp key="bySecond" datePattern="yyyyMMdd'T'HHmmss"/>
+    <appender name="FILE" class="ch.qos.logback.core.FileAppender">
+        <!--<file>D:/logback.log</file>-->
+        <file>log-${bySecond}.txt</file>
+        <!--覆盖或者添加-->
+        <append>true</append>
+        <!--这里使用encoder而不是layout-->
+        <encoder>
+            <pattern>%-4relative [%thread] %-5level %logger{35} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!--定义滚动文件appender，先将日志记录到指定文件，当符合某个条件时再将日志记录到其他日志-->
+    <appender name="ROLLING-FILE-1" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <!--滚动策略-->
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>rolling-file-%d{yyyy-MM-dd}.log</fileNamePattern>
+            <maxHistory>30</maxHistory>
+        </rollingPolicy>
+        <encoder>
+            <pattern>%-4relative [%thread] %-5level %logger{35} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!--定义一个异步appender-->
+    <appender name="ASYNC" class="ch.qos.logback.classic.AsyncAppender">
+        <!--不丢失日志，此参数表示队列容量剩余值的阈值，默认情况下等于queueSize/5，达到阈值则会丢弃TRACE、DEBUG、INFO级别的日志-->
+        <discardingThreshold>0</discardingThreshold>
+        <!--更改默认的队列深度，该值会影响性能，默认值256-->
+        <queueSize>256</queueSize>
+        <!--添加附加的appender，最多添加一个-->
+        <appender-ref ref="ROLLING-FILE-1"/>
+    </appender>
+
+    <!--定义logger,additivity属性表示是否向上级logger传递日志信息，默认是true-->
+    <logger name="logger" additivity="false" level="trace">
+        <appender-ref ref="STDOUT"/>
+    </logger>
+
+    <!--logger.java可以表示继承关系-->
+    <logger name="logger.java" />
+
+    <root level="trace">
+        <appender-ref ref="STDOUT"/>
+    </root>
+</configuration>

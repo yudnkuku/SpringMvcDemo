@@ -1,9 +1,12 @@
 package demo;
 
+import org.apache.ibatis.session.SqlSession;
 import org.junit.Test;
+import spring.SqlSessionUtil;
 import spring.dao.DBlog;
 import spring.dao.DEnum;
 import spring.dao.DStudent;
+import spring.dao.IStudentDao;
 import spring.entity.Blog;
 import spring.entity.LevelEnum;
 import spring.entity.Student;
@@ -63,6 +66,23 @@ public class MyBatisTest {
         blogs = dBlog.selectBlogsByIds(ids);
         for (Blog blog : blogs) {
             System.out.println(blog);
+        }
+    }
+
+    @Test
+    public void testCache() {
+        SqlSession sqlSession = SqlSessionUtil.getSession();
+        try {
+            IStudentDao dao = sqlSession.getMapper(IStudentDao.class);
+            String name = "yuding";
+            dao.getStudentInfoByName(name);
+            dao.getStudentInfoByName(name);
+            sqlSession.commit();
+
+        } finally {
+            if(sqlSession != null) {
+                sqlSession.close();
+            }
         }
     }
 }
