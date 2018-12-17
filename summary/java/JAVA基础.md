@@ -92,7 +92,8 @@
 ## 线程中断机制 ##
 线程的`Thread.interrupt()`方法会设置该线程的中断标志位，设置完标志位之后的线程是死亡、等待新的任务或是运行至下一步就取决于程序本身。
 调用线程的`Thread.interrupt()`方法如果发生以下三种情况，会抛出异常：
-1、如果线程在调用`wait()/wait(timeout)/join()/join(timeout)/sleep()/sleep(timeout)`等方法后处于阻塞状态，并且在此阻塞状态有其他线程调用改阻塞线程的`interrupt()`方法会直接抛出`InterruptedException`，线程中断标志位被清除，阻塞线程会被唤醒。
+1、如果线程在调用`wait()/wait(timeout)/join()/join(timeout)/sleep()/sleep(timeout)`等方法后处于阻塞状态，阻塞函数调用之后，会不断轮询检测中断状态标志是否为`true`，
+如果在此阻塞状态有其他线程调用该阻塞线程的`interrupt()`方法(中断标志位`true`)会直接抛出`InterruptedException`，线程中断标志位被清除，阻塞线程会被唤醒。
 2、如果线程在`InterruptibleChannel`上执行了`IO`操作而阻塞，那么中断之后`channel`将被关闭，线程中断标志位被设置，并且会抛出`ClosedByInterruptException`异常
 3、如果线程在`Selector`中被阻塞(`Selector.select()`)，线程中断标志会被设置，并且阻塞方法会立即返回，这和`Selector.wakeup()`方法类似
 
@@ -117,6 +118,50 @@
         }
     }
 
+使用`thread.interrupt()`中断阻塞状态线程
+当线程处于阻塞状态时(如调用`sleep`、`wait`、`join`等方法)，调用阻塞线程的`interrupt`方法会使阻塞线程结束阻塞状态，并抛出`InterruptedException`异常，
+其中断标志也会被清除，相当于调用线程给阻塞线程发送了一个中断请求，阻塞线程如何处理这个中断请求可以自定义：
+```
+class Example3 extends Thread {
+     public static void main(String args[]) throws Exception {
+         Example3 thread = new Example3();
+         System.out.println("Starting thread...");
+         thread.start();
+         Thread.sleep(3000);
+         System.out.println("Asking thread to stop...");
+         thread.interrupt();// 等中断信号量设置后再调用
+         Thread.sleep(3000);
+         System.out.println("Stopping application...");
+     }
+ 
+     public void run() {
+         while (!Thread.currentThread().isInterrupted()) {
+             System.out.println("Thread running...");
+             try {
+                 /*
+                  * 如果线程阻塞，将不会去检查中断信号量stop变量，所 以thread.interrupt()
+                  * 会使阻塞线程从阻塞的地方抛出异常，让阻塞线程从阻塞状态逃离出来，并
+                  * 进行异常块进行 相应的处理
+                  */
+                 Thread.sleep(1000);// 线程阻塞，如果线程收到中断操作信号将抛出InterrptedException异常
+             } catch (InterruptedException e) {
+                 System.out.println("Thread interrupted...");
+                 /*
+                  * 如果线程在调用 Object.wait()方法，或者该类的 join() 、sleep()方法
+                  * 过程中受阻，则其中断状态将被清除
+                  */
+                 System.out.println(this.isInterrupted());// false
+ 
+                 //中断线程，退出上面的while循环
+                 Thread.currentThread().interrupt();
+             }
+         }
+         System.out.println("Thread exiting under request...");
+     }
+ }```
+
+
+```
 ## 死锁Deadlock ##
 死锁的定义：
 两个线程互相持有对方需要的锁，比如线程`A`持有锁`M`想要锁`N`，而线程`B`持有锁`N`想要锁`M`，这样就可能出现死锁情况
