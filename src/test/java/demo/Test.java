@@ -151,4 +151,17 @@ public class Test {
         MediaType mt = MediaType.parseMediaType("application/json");
         System.out.println(mt.getType() + "/" + mt.getSubtype());
     }
+
+    @org.junit.Test
+    public void testBit() {
+        int i = 5;
+        System.out.println(i >>> 1);
+        System.out.println(i >> 1);
+    }
+
+    @org.junit.Test
+    public void testHashMapResize() {
+        HashMap<Object, Object> map = new HashMap<>();
+        map.put(1, 1);
+    }
 }
