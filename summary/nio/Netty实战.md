@@ -191,7 +191,105 @@
                     }
                 }
             }
+
+**ChannelPipeline源码分析**
+在通过`ServerBootstrap`引导启动服务端时，会构建一个`NioServerSocketChannel`实例，该实例最顶层父类是`AbstractChannel`，可以看下其构造方法代码：
+
+    protected AbstractChannel(Channel parent, EventLoop eventLoop) {
+        this.parent = parent;
+        this.eventLoop = validate(eventLoop);
+        //构造NioMessageUnsafe实例
+        unsafe = newUnsafe();
+        //构造ChannelPipeline实例
+        pipeline = new DefaultChannelPipeline(this);
+    }
+
+`DefaultChannelPipeline`构造方法：
+
+    public DefaultChannelPipeline(AbstractChannel channel) {
+        if (channel == null) {
+            throw new NullPointerException("channel");
+        }
+        this.channel = channel;
+        
+        //构造TailHandler，处理channelRead事件，什么都不做，只是打印达到尾部日志    
+        TailHandler tailHandler = new TailHandler();
+        tail = new DefaultChannelHandlerContext(this, null, generateName(tailHandler), tailHandler);
+        //构造HeadHandler
+        HeadHandler headHandler = new HeadHandler(channel.unsafe());
+        head = new DefaultChannelHandlerContext(this, null, generateName(headHandler), headHandler);
+        //构建链式结构
+        head.next = tail;
+        tail.prev = head;
+    }
+
+**ChannelPipeline触发事件**
+例如触发`Inbound`事件，`Inbound`事件一般从`head`开始往后遍历`pipeline`，`DefaultChannelPipeline.fireChannelRegistered()`代码：
+
+    public ChannelPipeline fireChannelRegistered() {
+        //
+        head.fireChannelRegistered();
+        return this;
+    }
+    
+继续跟进去`DefaultChannelHandlerContext.fireChannelRegistered()`，
+
+    public ChannelHandlerContext fireChannelRegistered() {
+        DefaultChannelHandlerContext next = findContextInbound(MASK_CHANNEL_REGISTERED);
+        next.invoker.invokeChannelRegistered(next);
+        return this;
+    }
+
+继续`findContextInbound`方法：
+
+    private DefaultChannelHandlerContext findContextInbound(int mask) {
+        DefaultChannelHandlerContext ctx = this;
+        //从head节点往后遍历，直到ChannelHandlerContext的skipFlags&mask != 0
+        do {
+            ctx = ctx.next;
+        } while ((ctx.skipFlags & mask) != 0);
+        return ctx;
+    }
+
+`skipFlags`如何计算的，通过`DefaultChannelHandlerContext.skipFlags()`方法：
+
+    private static int skipFlags(ChannelHandler handler) {
+        //使用了缓存，skipFlagsCache是缓存数组，每个数组元素都是一个WeakHashMap，key是ChannelHandler的class对象，value是对应的skipFlag
+        WeakHashMap<Class<?>, Integer> cache =
+                skipFlagsCache[(int) (Thread.currentThread().getId() % skipFlagsCache.length)];
+        Class<? extends ChannelHandler> handlerType = handler.getClass();
+        int flagsVal;
+        //获取cache的对象锁，这里为什么要用锁
+        synchronized (cache) {
+            Integer flags = cache.get(handlerType);
+            if (flags != null) {
+                flagsVal = flags;
+            } else {
+                flagsVal = skipFlags0(handlerType);
+                cache.put(handlerType, Integer.valueOf(flagsVal));
+            }
+        }
+
+        return flagsVal;
+    }
+
+继续查看`skipFlags0()`方法：
+
+    private static int skipFlags0(Class<? extends ChannelHandler> handlerType) {
+        int flags = 0;
+        try {
+            //通过反射判断ChannelHandler的事件回调方法是否注解有`Skip`，如果注解则将其和掩码相或，那么在上面的pipeline遍历时，只需要判断skipFlag&mask是否等于0，如果等于0表示没有注解Skip，否则注解了Skip，表示该ChannelHandler在该事件的处理中会跳过
+            if (handlerType.getMethod(
+                    "handlerAdded", ChannelHandlerContext.class).isAnnotationPresent(Skip.class)) {
+                flags |= MASK_HANDLER_ADDED;
+            }
+            if (handlerType.getMethod(
+                    "handlerRemoved", ChannelHandlerContext.class).isAnnotationPresent(Skip.class)) {
+                flags |= MASK_HANDLER_REMOVED;
+            }
             
+![ChannelPipeline][3]
+
 **ChannelHandler**
 `Handler`生命周期方法:
 
@@ -317,6 +415,11 @@
 
 
 ## 线程模型源码分析 ##
+服务端在启动时，创建了两个`NioEventLoopGroup`，它们实际上是两个独立的`Reactor`线程池，一个用于接收客户端的`TCP`连接，另一个用于处理`I/O`相关的读写操作，或者执行系统`Task`、定时任务`Task`。
+`Netty`的`NioEventLoop`并不是一个纯粹的`I/O`线程，它除了负责`I/O`的读写之外，还兼顾处理一下两类任务。
+1、系统`Task`：通过调用`NioEventLoop`的`execute(Runnable task)`方法实现，`Netty`有很多系统`Task`，创建它们的主要原因是：当`I/O`线程和用户线程同时操作网络资源时，为了防止并发操作导致的锁竞争，将用户线程的操作封装成`Task`放入消息队列中，由`I/O`线程负责执行，这样就实现了局部无锁化。
+2、定时任务：通过调用`NioEventLoop`的`schedule(Runnble command, long  delay, TimeUnit unit)`方法实现
+
 不管是在客户端还是在服务端启动时，都会用到`NioEventLoopGroup`，例如：
 
     EventLoopGroup boss = new NioEventLoopGroup();
@@ -446,7 +549,7 @@
         }
 
         ChannelPromise regFuture = channel.newPromise();
-        //注册，并fireChannelRegistered()
+        //调用NioServerSocketChannel底层的注册方法，并fireChannelRegistered()
         channel.unsafe().register(regFuture);   //(3)
         
 (1)首先看构造`channel`方法`createChannel()`:
@@ -770,27 +873,41 @@
 
 捋一捋事件回调的顺序：
 
-    当客户端发起连接请求时产生注册事件，回调ChannelInitializer的channelRegistered方法，将ServerBootstrapAcceptor添加到NioServerSocketChannel的ChannelPipeline上，接着回调ServerBootstrapAcceptor的channelRead方法，其中传递的msg就是服务端等待连接后生成的Channel实例，可以向下转型为NioSocketChannel，在channelRead方法中将ServerBootstrap设置的childHandler添加到该Channel的ChannelPipeline，接着就是触发添加的childHandler的回调方法了。
-
+    首先通过代码channel.unsafe().register(regFuture)手动注册NioServerSocketChannel，此时将产生注册事件，触发该NioServerSocketChannel的channelRegistered()回调，将ServerBootstrapAcceptor添加到该NioServerSocketChannel的ChannelPipeline上，接着回调ServerBootstrapAcceptor的channelRead方法，其中传递的msg就是服务端等待连接后生成的Channel实例，可以向下转型为NioSocketChannel，在channelRead方法中将ServerBootstrap设置的childHandler添加到该NioSocketChannel的ChannelPipeline，接着就是触发添加的childHandler的回调方法了。
+    
 `step1`:
-`ServerBootstrap.init`方法：
+`AbstractBootstrap.initAndRegister()`方法：
 
-    p.addLast(new ChannelInitializer<Channel>() {
-            @Override
-            public void initChannel(Channel ch) throws Exception {
-                ch.pipeline().addLast(new ServerBootstrapAcceptor(currentChildHandler, currentChildOptions,
-                        currentChildAttrs));
-            }
-        });
+    final ChannelFuture initAndRegister() {
+        Channel channel;
+        try {
+            //通过反射构建NioServerSocketChannel实例
+            channel = createChannel();
+        } catch (Throwable t) {
+            return VoidChannel.INSTANCE.newFailedFuture(t);
+        }
 
-服务端主动触发注册事件，执行上面的`initChannel`方法，将`ServerBootstrapAcceptor`注册到`NioServerSocketChannel`的`ChannelPipeline`上
+        try {
+            //初始化channel，这个方法中就已经将ServerBootstrapAcceptor通过ChannelInitializer添加到NioServerSocketChannel的pipeline，ServerBootstrapAcceptor中定义了channelRead回调方法，读取的msg就是accept到的客户端连接通道，具体可以debug
+            init(channel);
+        } catch (Throwable t) {
+            channel.unsafe().closeForcibly();
+            return channel.newFailedFuture(t);
+        }
 
+        ChannelPromise regFuture = channel.newPromise();
+        //调用channel.unsafe().register()注册，这里会触发NioServerSocketChannel的channelRegistered事件，会将ServerBootstrapAcceptor添加到NioServerSocketChannel的pipeline中
+        channel.unsafe().register(regFuture);
+        ...   
+    }
 `step2`:
-接收到客户端的连接，会触发`ServerBootstrapAcceptor`的`channelRead`回调，该回调收到的`msg`参数实际上是服务端生成的`NioSocketChannel`，然后将`ServerBootstrap`配置的`childHandler`添加到该`NioSocketChannel`上，再次触发注册事件：
+`ServerBootstrapAcceptor.channelRead()`方法：
 
     public void channelRead(ChannelHandlerContext ctx, Object msg) {
+            //msg实际上是accept生成的Channel实例
             Channel child = (Channel) msg;
-
+            
+            //将childHandler添加到该Channel的pipeline
             child.pipeline().addLast(childHandler);
 
             for (Entry<ChannelOption<?>, Object> e: childOptions) {
@@ -821,5 +938,211 @@
             ctx.writeAndFlush(buf);
         }
 
+
+## NioEventLoop源码解析 ##
+`NioEventLoop`内部维护了一个线程，线程启动时会调用`NioEventLoop`的`run`方法，执行`I/O`任务和非`I/O`任务
+1、`I/O`任务即`selectionKey`中`ready`的事件，如`accept`、`connect`、`read`、`write`等，由`processSelectedKeysOptimized`或者`processSelectedKeysPlain`方法触发
+2、非`I/O`任务则为添加到`taskQueue`中的任务，如`register0`、`bind0`等任务，由`runAllTasks`方法触发
+3、两种任务的执行时间由变量`ioRatio`控制，默认值是50，则表示允许非`IO`任务执行的时间和`IO`任务执行的事件相等
+
+    protected void run() {
+        for (;;) {
+            oldWakenUp = wakenUp.getAndSet(false);
+            try {
+                if (hasTasks()) {
+                    //如果任务队列中有任务，那么执行selectNow()方法，该方法会立即返回
+                    selectNow();
+                } else {
+                    //否则执行select()方法
+                    select();
+                    if (wakenUp.get()) {
+                        selector.wakeup();
+                    }
+                }
+
+                cancelledKeys = 0;
+                //开始执行I/O操作
+                final long ioStartTime = System.nanoTime();
+                needsToSelectAgain = false;
+                if (selectedKeys != null) {
+                    processSelectedKeysOptimized(selectedKeys.flip());
+                } else {
+                    processSelectedKeysPlain(selector.selectedKeys());
+                }
+                //统计I/O操作时间
+                final long ioTime = System.nanoTime() - ioStartTime;
+                //根据ioRatio计算其他任务执行时间
+                final int ioRatio = this.ioRatio;
+                //调用runAllTasks()执行其他任务
+                runAllTasks(ioTime * (100 - ioRatio) / ioRatio);
+
+                if (isShuttingDown()) {
+                    closeAll();
+                    if (confirmShutdown()) {
+                        break;
+                    }
+                }
+            } catch (Throwable t) {
+                logger.warn("Unexpected exception in the selector loop.", t);
+
+                // Prevent possible consecutive immediate failures that lead to
+                // excessive CPU consumption.
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    // Ignore.
+                }
+            }
+        }
+    }
+    
+    
+`select()`方法：
+
+    private void select() throws IOException {
+        Selector selector = this.selector;
+        try {
+            int selectCnt = 0;
+            long currentTimeNanos = System.nanoTime();
+            long selectDeadLineNanos = currentTimeNanos + delayNanos(currentTimeNanos);
+            for (;;) {
+                long timeoutMillis = (selectDeadLineNanos - currentTimeNanos + 500000L) / 1000000L;
+                if (timeoutMillis <= 0) {
+                    if (selectCnt == 0) {
+                        selector.selectNow();
+                        selectCnt = 1;
+                    }
+                    break;
+                }
+
+                int selectedKeys = selector.select(timeoutMillis);
+                selectCnt ++;
+
+                if (selectedKeys != 0 || oldWakenUp || wakenUp.get() || hasTasks()) {
+                    // Selected something,
+                    // waken up by user, or
+                    // the task queue has a pending task.
+                    break;
+                }
+
+                if (SELECTOR_AUTO_REBUILD_THRESHOLD > 0 &&
+                        selectCnt >= SELECTOR_AUTO_REBUILD_THRESHOLD) {
+                    // The selector returned prematurely many times in a row.
+                    // Rebuild the selector to work around the problem.
+                    logger.warn(
+                            "Selector.select() returned prematurely {} times in a row; rebuilding selector.",
+                            selectCnt);
+
+                    rebuildSelector();
+                    selector = this.selector;
+
+                    // Select again to populate selectedKeys.
+                    selector.selectNow();
+                    selectCnt = 1;
+                    break;
+                }
+
+                currentTimeNanos = System.nanoTime();
+            }
+
+            if (selectCnt > MIN_PREMATURE_SELECTOR_RETURNS) {
+                if (logger.isDebugEnabled()) {
+                    logger.debug("Selector.select() returned prematurely {} times in a row.", selectCnt - 1);
+                }
+            }
+        } catch (CancelledKeyException e) {
+            if (logger.isDebugEnabled()) {
+                logger.debug(CancelledKeyException.class.getSimpleName() + " raised by a Selector - JDK bug?", e);
+            }
+            // Harmless exception - log anyway
+        }
+    }
+
+如果触发了`epoll cpu 100%`的`bug`，那么`selector.select(timeoutMills)`会立即返回，不会阻塞`timeoutMills`，变量`selectCnt`会逐渐变大，当达到阈值`512`时，会触发`rebuildSelector()`方法重建`selector`
+`rebuildSelector()`方法：
+
+    public void rebuildSelector() {
+        if (!inEventLoop()) {
+            execute(new Runnable() {
+                @Override
+                public void run() {
+                    rebuildSelector();
+                }
+            });
+            return;
+        }
+
+        final Selector oldSelector = selector;
+        final Selector newSelector;
+
+        if (oldSelector == null) {
+            return;
+        }
+
+        try {
+            //重新新建一个selector
+            newSelector = openSelector();
+        } catch (Exception e) {
+            logger.warn("Failed to create a new Selector.", e);
+            return;
+        }
+
+        // Register all channels to the new Selector. 注册
+        int nChannels = 0;
+        for (;;) {
+            try {
+                for (SelectionKey key: oldSelector.keys()) {
+                    Object a = key.attachment();
+                    try {
+                        if (key.channel().keyFor(newSelector) != null) {
+                            continue;
+                        }
+                        //获取感兴趣的操作
+                        int interestOps = key.interestOps();
+                        //取消channel和selector的注册关系
+                        key.cancel();
+                        //重新注册channel到新的selector    
+                       key.channel().register(newSelector, interestOps, a);
+                        nChannels ++;
+                    } catch (Exception e) {
+                        logger.warn("Failed to re-register a Channel to the new Selector.", e);
+                        if (a instanceof AbstractNioChannel) {
+                            AbstractNioChannel ch = (AbstractNioChannel) a;
+                            ch.unsafe().close(ch.unsafe().voidPromise());
+                        } else {
+                            @SuppressWarnings("unchecked")
+                            NioTask<SelectableChannel> task = (NioTask<SelectableChannel>) a;
+                            invokeChannelUnregistered(task, key, e);
+                        }
+                    }
+                }
+            } catch (ConcurrentModificationException e) {
+                // Probably due to concurrent modification of the key set.
+                continue;
+            }
+
+            break;
+        }
+
+        selector = newSelector;
+
+        try {
+            // time to close the old selector as everything else is registered to the new one
+            oldSelector.close();
+        } catch (Throwable t) {
+            if (logger.isWarnEnabled()) {
+                logger.warn("Failed to close the old Selector.", t);
+            }
+        }
+
+        logger.info("Migrated " + nChannels + " channel(s) to the new Selector.");
+    }
+总结`rebuildSelector()`过程：
+1、通过方法`openSelector`创建一个新的`new selector`
+2、遍历`old selector`关联的`selectionKey`，调用`key.cancel()`取消注旧的注册关系，将`channel`重新注册到新的`new selector`
+3、将内部的`selector`更新为新的`new selector`，调用`oldSelector.close()`方法关闭`old selector`
+
+
   [1]: https://7n.w3cschool.cn/attachments/image/20170808/1502159113476213.jpg
   [2]: https://7n.w3cschool.cn/attachments/image/20170808/1502159260674064.jpg
+  [3]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/image/ChannelPipeline.png
