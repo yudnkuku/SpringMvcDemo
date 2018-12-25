@@ -739,7 +739,7 @@
                 register0(promise);
             } else {
                 try {
-                    //调用execute执行Runnable
+                    //调用execute执行Runnable，这里会进入SingleThreadEventLoopExecutor中
                     eventLoop.execute(new Runnable() {
                         @Override
                         public void run() {
@@ -766,11 +766,12 @@
 
         boolean inEventLoop = inEventLoop();
         if (inEventLoop) {
+            //如果当前线程就是NioEventLoop所属线程(NioEventLoop有个内置thread属性)，直接将任务添加到任务队列中
             addTask(task);
         } else {
-            //执行这里
-            startThread();  //(1)
-            addTask(task);  //(2)
+            //否则执行这里
+            startThread();  //(1)开启一个新的线程执行NioEventLoop中的run()方法
+            addTask(task);  //(2)将其他任务添加到任务队列
             if (isShutdown() && removeTask(task)) {
                 reject();
             }
@@ -798,7 +799,7 @@
     
     private void doStartThread() {
         assert thread == null;
-        //executor是在构造NioEventLoop传入的参数，它是ThreadPerTaskExecutor，会为每一个Runnable任务创建一个线程执行
+        //executor是在构造NioEventLoop传入的参数，它是ThreadPerTaskExecutor，会为每一个Runnable任务创建一个线程执行，下面的代码相当于开启一个单独的线程执行run()方法
         executor.execute(new Runnable() {
             @Override
             public void run() {
@@ -810,7 +811,7 @@
                 boolean success = false;
                 updateLastExecutionTime();
                 try {
-                    SingleThreadEventExecutor.this.run();   //此处见另外的分析
+                    SingleThreadEventExecutor.this.run();   //此处会跳转到NioEventLoop的run()方法
                     success = true;
 
 (2)`addTask()`：
@@ -845,14 +846,14 @@
                     pipeline.fireChannelActive();
                 }
 
-`doRegister()`：
+`doRegister()`，：
 
     protected void doRegister() throws Exception {
         boolean selected = false;
         //死循环
         for (;;) {
             try {
-                //将selector注册到channel，selector是在NioEventLoop构造时通过openSelector方法生成的
+                //将selector注册到channel，selector是在NioEventLoop构造时通过openSelector方法生成的，注意这里的attachment就是当前NioServerSocketChannel实例
                 selectionKey = javaChannel().register(eventLoop().selector, 0, this);
                 return;
 
@@ -873,7 +874,7 @@
 
 捋一捋事件回调的顺序：
 
-    首先通过代码channel.unsafe().register(regFuture)手动注册NioServerSocketChannel，此时将产生注册事件，触发该NioServerSocketChannel的channelRegistered()回调，将ServerBootstrapAcceptor添加到该NioServerSocketChannel的ChannelPipeline上，接着回调ServerBootstrapAcceptor的channelRead方法，其中传递的msg就是服务端等待连接后生成的Channel实例，可以向下转型为NioSocketChannel，在channelRead方法中将ServerBootstrap设置的childHandler添加到该NioSocketChannel的ChannelPipeline，接着就是触发添加的childHandler的回调方法了。
+    首先通过代码channel.unsafe().register(regFuture)手动注册NioServerSocketChannel，此时将产生注册事件，触发该NioServerSocketChannel的channelRegistered()回调，将ServerBootstrapAcceptor添加到该NioServerSocketChannel的ChannelPipeline上，接着回调ServerBootstrapAcceptor的channelRead方法，其中传递的msg就是服务端等待连接后生成的Channel实例(实际上也是NioSocketChannel实例)，可以向下转型为NioSocketChannel，在channelRead回调方法中将ServerBootstrap设置的childHandler添加到该NioSocketChannel的ChannelPipeline，该NioSocketChannel只对读事件感兴趣，同时会在该channelRead回调最后调用child.unsafe().register()方法，开启单独的线程执行NioEventLoop的run方法，接下来就可以通过selector的轮询来读取客户端的消息
     
 `step1`:
 `AbstractBootstrap.initAndRegister()`方法：
@@ -904,7 +905,7 @@
 `ServerBootstrapAcceptor.channelRead()`方法：
 
     public void channelRead(ChannelHandlerContext ctx, Object msg) {
-            //msg实际上是accept生成的Channel实例
+            //msg实际上是accept生成的Channel实例，即NioSocketChannel
             Channel child = (Channel) msg;
             
             //将childHandler添加到该Channel的pipeline
@@ -923,7 +924,7 @@
             for (Entry<AttributeKey<?>, Object> e: childAttrs) {
                 child.attr((AttributeKey<Object>) e.getKey()).set(e.getValue());
             }
-
+            //调用unsafe的注册方法，会开启单独的线程执行NioEventLoop的run()方法，接下来就可以接收客户端发来的消息数据
             child.unsafe().register(child.newPromise());
         }
 
@@ -940,10 +941,12 @@
 
 
 ## NioEventLoop源码解析 ##
-`NioEventLoop`内部维护了一个线程，线程启动时会调用`NioEventLoop`的`run`方法，执行`I/O`任务和非`I/O`任务
+`NioEventLoop`内部维护了一个线程(线程的实例化在`ThreadPerTaskExecutor`类中)，线程启动时会调用`NioEventLoop`的`run`方法，执行`I/O`任务和非`I/O`任务
 1、`I/O`任务即`selectionKey`中`ready`的事件，如`accept`、`connect`、`read`、`write`等，由`processSelectedKeysOptimized`或者`processSelectedKeysPlain`方法触发
 2、非`I/O`任务则为添加到`taskQueue`中的任务，如`register0`、`bind0`等任务，由`runAllTasks`方法触发
 3、两种任务的执行时间由变量`ioRatio`控制，默认值是50，则表示允许非`IO`任务执行的时间和`IO`任务执行的事件相等
+
+这里解读`NioEventLoop`中的`run`方法，该方法会在一个单独的线程中运行(具体参考`ThreadPerTaskExecutor`类，在`MultithreadEventExecutorGroup`(`NioEventLoopGroup`的父类)中会维护一个`NioEventLoop`类型的`children`数组)
 
     protected void run() {
         for (;;) {
@@ -973,7 +976,7 @@
                 final long ioTime = System.nanoTime() - ioStartTime;
                 //根据ioRatio计算其他任务执行时间
                 final int ioRatio = this.ioRatio;
-                //调用runAllTasks()执行其他任务
+                //调用runAllTasks()执行其他任务，例如注册、绑定
                 runAllTasks(ioTime * (100 - ioRatio) / ioRatio);
 
                 if (isShuttingDown()) {
@@ -1142,6 +1145,176 @@
 2、遍历`old selector`关联的`selectionKey`，调用`key.cancel()`取消注旧的注册关系，将`channel`重新注册到新的`new selector`
 3、将内部的`selector`更新为新的`new selector`，调用`oldSelector.close()`方法关闭`old selector`
 
+接着继续执行`I/O`操作和其他任务：
+        
+        //开始执行I/O操作
+        final long ioStartTime = System.nanoTime();
+        needsToSelectAgain = false;
+        if (selectedKeys != null) {
+            processSelectedKeysOptimized(selectedKeys.flip());
+        } else {
+            processSelectedKeysPlain(selector.selectedKeys());
+        }
+        final long ioTime = System.nanoTime() - ioStartTime;
+
+        final int ioRatio = this.ioRatio;
+        //执行其他任务，例如register0和bind0
+        runAllTasks(ioTime * (100 - ioRatio) / ioRatio);
+
+        if (isShuttingDown()) {
+            closeAll();
+            if (confirmShutdown()) {
+                break;
+            }
+        }
+看一下`processSelectedKeysPlain`方法：
+
+    private void processSelectedKeysPlain(Set<SelectionKey> selectedKeys) {
+        // check if the set is empty and if so just return to not create garbage by
+        // creating a new Iterator every time even if there is nothing to process.
+        // See https://github.com/netty/netty/issues/597
+        if (selectedKeys.isEmpty()) {
+            return;
+        }
+
+        Iterator<SelectionKey> i = selectedKeys.iterator();
+        for (;;) {
+            final SelectionKey k = i.next();
+            final Object a = k.attachment();
+            i.remove();
+            //这里为什么和SelectionKey关联的attachment为什么是AbstractNioChannel类型？
+            if (a instanceof AbstractNioChannel) {
+                processSelectedKey(k, (AbstractNioChannel) a);
+            } else {
+                @SuppressWarnings("unchecked")
+                NioTask<SelectableChannel> task = (NioTask<SelectableChannel>) a;
+                processSelectedKey(k, task);
+            }
+
+原因可以在初始化注册时找到，`AbstractNioChannel.doRegister()`方法：
+
+    protected void doRegister() throws Exception {
+        boolean selected = false;
+        for (;;) {
+            try {
+                //这里将NioServerSocketChannel注册到NioEventLoop内部的selector，并将该Channel作为attachment，所以上面的attachment实际上是NioServerSocketChannel类型，其父类就是AbstractNioChannel
+                selectionKey = javaChannel().register(eventLoop().selector, 0, this);
+                return;
+                ...
+            }
+        }
+
+`processSelectedKeysOptimized()`和`processSelectedKeysPlain`方法都会使用到一个公共的方法-`processSelectedKey`:
+    
+    private static void processSelectedKey(SelectionKey k, AbstractNioChannel ch) {
+        //这里实际上是NioMessageUnsafe
+        final NioUnsafe unsafe = ch.unsafe();
+        if (!k.isValid()) {
+            // close the channel if the key is not valid anymore
+            unsafe.close(unsafe.voidPromise());
+            return;
+        }
+
+        try {
+            //获取SelectionKey
+            int readyOps = k.readyOps();
+            // Also check for readOps of 0 to workaround possible JDK bug which may otherwise lead
+            // to a spin loop
+            if ((readyOps & (SelectionKey.OP_READ | SelectionKey.OP_ACCEPT)) != 0 || readyOps == 0) {
+                unsafe.read();  //注意这里，当通道有数据读取时，会调用unsafe.read()读数据
+                if (!ch.isOpen()) {
+                    // Connection already closed - no need to handle write.
+                    return;
+                }
+            }
+            if ((readyOps & SelectionKey.OP_WRITE) != 0) {
+                // Call forceFlush which will also take care of clear the OP_WRITE once there is nothing left to write
+                ch.unsafe().forceFlush();
+            }
+            if ((readyOps & SelectionKey.OP_CONNECT) != 0) {
+                // remove OP_CONNECT as otherwise Selector.select(..) will always return without blocking
+                // See https://github.com/netty/netty/issues/924
+                int ops = k.interestOps();
+                ops &= ~SelectionKey.OP_CONNECT;
+                k.interestOps(ops);
+
+                unsafe.finishConnect();
+            }
+        } catch (CancelledKeyException e) {
+            unsafe.close(unsafe.voidPromise());
+        }
+    }
+
+查看`unsafe.read()`方法，进入`NioMessageUnsafe`，查看核心代码：
+
+        try {
+                for (;;) {
+                    //调用doReadMessages()，将消息读取到readBuf中
+                    int localRead = doReadMessages(readBuf);
+                    if (localRead == 0) {
+                        break;
+                    }
+                    if (localRead < 0) {
+                        closed = true;
+                        break;
+                    }
+
+                    if (readBuf.size() >= maxMessagesPerRead | !autoRead) {
+                        break;
+                    }
+                }
+            } catch (Throwable t) {
+                exception = t;
+            }
+
+            int size = readBuf.size();
+            //遍历readBuf，触发channelRead事件
+            for (int i = 0; i < size; i ++) {
+                pipeline.fireChannelRead(readBuf.get(i));
+            }
+
+进入`NioServerSocketChannel`的`doReadMessages()`方法：
+
+    protected int doReadMessages(List<Object> buf) throws Exception {
+        //调用accept()方法接收客户端连接，返回SocketChannel实例
+        SocketChannel ch = javaChannel().accept();
+
+        try {
+            if (ch != null) {
+                //构建一个NioSocketChannel实例，添加到readBuf中，传递给ServerBootstrapAcceptor中的channelRead()回调方法
+                buf.add(new NioSocketChannel(this, childEventLoopGroup().next(), ch));
+                return 1;
+            }
+        }
+
+看下`NioSocketChannel`的构造方法：
+
+    public NioSocketChannel(Channel parent, EventLoop eventLoop, SocketChannel socket) {
+        super(parent, eventLoop, socket);
+        config = new DefaultSocketChannelConfig(this, socket.socket());
+    }
+    
+    //这里是AbstractNioByteChannel，和NioServerSocketChannel的父类AbstractNioMessageChannel不同
+    protected AbstractNioByteChannel(Channel parent, EventLoop eventLoop, SelectableChannel ch) {
+        //只对读事件感兴趣
+        super(parent, eventLoop, ch, SelectionKey.OP_READ);
+    }
+    
+    后面的流程和NioServerSocketChannel一样了，只是在下面的代码中会存在多态情况：
+    
+    protected AbstractChannel(Channel parent, EventLoop eventLoop) {
+        this.parent = parent;
+        this.eventLoop = validate(eventLoop);
+        unsafe = newUnsafe();   //newUnsafe()会进入AbstractNioUnsafe，返回NioByteUnsafe实例，而不是NioMessageUnsafe实例
+        pipeline = new DefaultChannelPipeline(this);
+    }
+    
+    protected AbstractNioUnsafe newUnsafe() {
+        return new NioByteUnsafe();
+    }
+    
+    
+    
 
   [1]: https://7n.w3cschool.cn/attachments/image/20170808/1502159113476213.jpg
   [2]: https://7n.w3cschool.cn/attachments/image/20170808/1502159260674064.jpg
