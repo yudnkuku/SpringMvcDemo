@@ -1314,7 +1314,12 @@
     }
     
 **NioServerSocketChannel & NioSocketChannel**
+
+`NioServerSocketChannel`
+
 ![NioServerSocketChannel类图][4]
+
+`NioSocketChannel`
 
 ![NioSocketChannel类图][5]
 
