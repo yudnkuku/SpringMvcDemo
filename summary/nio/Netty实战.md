@@ -1313,9 +1313,98 @@
         return new NioByteUnsafe();
     }
     
+**NioServerSocketChannel & NioSocketChannel**
+![NioServerSocketChannel类图][4]
+
+![NioSocketChannel类图][5]
+
+可以看到`NioServerSocketChannel`继承自`AbstractNioMessageChannel`，这个`channel`是用来读写消息的基类，而`NioSocketChannnel`继承自`AbstractNioByteChannel`，这个`channel`是用来读写字节的基类。
+
+`NioServerSocketChannel`和`NioSocketChannel`在的构造方法对比：
     
+    //NioServerSocketChannel
+    public NioServerSocketChannel(EventLoop eventLoop, EventLoopGroup childGroup) {
+        super(null, eventLoop, childGroup, newSocket(), SelectionKey.OP_ACCEPT);    //只对Accept事件有兴趣，接收客户端的连接
+        config = new DefaultServerSocketChannelConfig(this, javaChannel().socket());
+    }
     
+    //NioSocketChannel
+    public NioSocketChannel(Channel parent, EventLoop eventLoop, SocketChannel socket) {
+        super(parent, eventLoop, socket);
+        config = new DefaultSocketChannelConfig(this, socket.socket());
+    }
+    
+    protected AbstractNioByteChannel(Channel parent, EventLoop eventLoop, SelectableChannel ch) {
+        super(parent, eventLoop, ch, SelectionKey.OP_READ); //只对读事件有兴趣
+    }
+    
+这两个构造方法最后都会调用顶层父类`AbstractChannel`的构造方法：
+
+    protected AbstractChannel(Channel parent, EventLoop eventLoop) {
+        this.parent = parent;
+        this.eventLoop = validate(eventLoop);
+        unsafe = newUnsafe();   //这里会有不同的实现
+        pipeline = new DefaultChannelPipeline(this);
+    }
+
+上面的`newUnsafe()`会有不同的实现，`NioServerSocketChannel`对应`AbstractNioMessageChannel`中的`newUbsafe()`实现：
+
+    protected AbstractNioUnsafe newUnsafe() {
+        return new NioMessageUnsafe();
+    }
+    
+`NioMessageUnsafe`的`read`方法：
+
+    try {
+                for (;;) {
+                    int localRead = doReadMessages(readBuf);    //进入NioServerSocketChannel
+                    if (localRead == 0) {
+                        break;
+                    }
+                    if (localRead < 0) {
+                        closed = true;
+                        break;
+                    }
+
+                    if (readBuf.size() >= maxMessagesPerRead | !autoRead) {
+                        break;
+                    }
+                }
+            } catch (Throwable t) {
+                exception = t;
+            }
+
+            int size = readBuf.size();
+            for (int i = 0; i < size; i ++) {
+                pipeline.fireChannelRead(readBuf.get(i));   //再触发通道pipeline的channelRead事件
+            }
+
+`NioServerSocketChannel`中的`doReadMessages()`方法：
+
+        //接收客户端连接，生成SocketChannel实例
+        SocketChannel ch = javaChannel().accept();
+
+        try {
+            if (ch != null) {
+                buf.add(new NioSocketChannel(this, childEventLoopGroup().next(), ch));  //构造NioSocketChannel添加到buf中
+                return 1;
+            }
+        }
+
+`AbstractNioByteChannel`(`NioSocketChannel`的父类)中的`newUnsafe()`方法：
+
+    protected AbstractNioUnsafe newUnsafe() {
+        return new NioByteUnsafe();
+    }
+
+这个类就比较简单，直接从通道中读字节数据到`buf`中，核心实现：
+
+    protected int doReadBytes(ByteBuf byteBuf) throws Exception {
+        return byteBuf.writeBytes(javaChannel(), byteBuf.writableBytes());
+    }
 
   [1]: https://7n.w3cschool.cn/attachments/image/20170808/1502159113476213.jpg
   [2]: https://7n.w3cschool.cn/attachments/image/20170808/1502159260674064.jpg
   [3]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/image/ChannelPipeline.png
+  [4]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/nio/NioServerSocketChannel.png
+  [5]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/nio/NioSocketChannel.png
