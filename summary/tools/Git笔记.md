@@ -113,6 +113,10 @@
 ## Rebase ##
 `git rebase`操作将本地未`push`的分叉历史整理成直线
 
+**Git流程图**
+
+![Git流程图][2]
+
 ## Git分支模型 ##
 `Git`分支介绍：
 `master`：主干分支，发布到生产的代码
@@ -120,6 +124,10 @@
 `release`:新版本分支，新版本要发布到生产的代码
 `feature`:新需求开发分支
 `hotfix`:紧急修复生产`buf`的代码
+
+`Git`分支模型图：
+
+![Git分支模型][3]
 
 下面举一些可能在工作中面对的场景：
 1、组长分配新需求下来，安排下周上线(假设是12.27号)，你看看当前有没有下周版本的分支？有的话很简单，`checkout`下周分支(`feature_app1.0.0_12.27`)来开发就行，没有的话需要从`develop`分支创建一个新的`feature`分支(`feature_app1.1.0_12.27`)，然后将对应的`pom.xml`版本号修改成`1.1.0-SNAPSHOT`，注意命名，比如这里我用`feature`做前缀，你也可以自己设定一个规则
@@ -136,4 +144,8 @@
 
 7、第二天，生产环境下一直报`NPE`异常，在`master`分支上拉取一个`hotfix_app1.1.1_1228`分支，修复`NPE`，打包上线，验证没问题了将`hotfix_app1.1.1_1228`分支合并到`develop`和`master`分支，并把`develop`分支合并到1227以后的banbne
  
+
+
   [1]: https://www.liaoxuefeng.com/wiki/0013739516305929606dd18361248578c67b8067c8c017b000
+  [2]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/tools/git%E6%B5%81%E7%A8%8B%E5%9B%BE.png
+  [3]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/tools/git-model.png
