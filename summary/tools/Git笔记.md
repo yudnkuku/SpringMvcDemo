@@ -77,7 +77,7 @@
 使用命令`git log --graph --pretty=oneline`可以查看分支合并图
 
 ## 分支管理策略 ##
-通常，合并分支时，`Git`会用`Fast Forward`模式，但这种模式下删除分之后会丢掉分支信息，如果强制禁用`ff`模式，`Git`会在`merge`时生成一个新的`commit`，从分支历史上会看到分支信息
+通常，合并分支时，`Git`会用`Fast Forward`模式，但这种模式下删除分支之后会丢掉分支信息，如果强制禁用`ff`模式，`Git`会在`merge`时生成一个新的`commit`，从分支历史上会看到分支信息
 主要命令：`git merge --no-ff -m "xxx" dev`使用`no ff`模式合并`dev`分支，因为会生成一个新的`commit`，使用`-m`标明提交信息
 
 ## Bug分支 ##
@@ -118,16 +118,45 @@
 ![Git流程图][2]
 
 ## Git分支模型 ##
+
 `Git`分支介绍：
-`master`：主干分支，发布到生产的代码
-`develop`:开发分支，预发布到生产的代码
-`release`:新版本分支，新版本要发布到生产的代码
-`feature`:新需求开发分支
-`hotfix`:紧急修复生产`buf`的代码
+
+1、`master`：主干分支，发布到生产的代码
+`origin/master`就是主要分支，其`HEAD`指向的源码反映了生产准备状态，`origin/develop`中`HEAD`指向的源码反映了最近为下一个发布版本提交的更改，这个分支也叫做集成分支，当`develop`分支的代码到达一个稳定点，并准备好发布时，其所有的改变都必须`merge`到`master`，并`tag`上发布版本编号
+
+2、`develop`:开发分支，预发布到生产的代码
+
+3、`release`:新版本分支，新版本要发布到生产的代码
+`release`分支可以从`develop`分支拉取，然后合并到`develop`和`master`分支，`release`分支通常用来准备新的生产版本发布
+
+4、`feature`:新需求开发分支
+`feature`分支一般从`develop`分支拉取，必须`merge`回`develop`。
+
+`feature-branch`
+
+![feature branch][3]
+
+`feature`分支用来开发新需求，从`develop`分支拉取，最后`merge`回`develop`分支
+
+    $ git checkout -b myfeature develop //创建feature分支并切换到feature分支
+    $ git checkout develop //切换到develop分支
+    $ git merge --no-ff -m "new feature" myfeature   //将feature分支merge回develop
+    $ git branch -d myfeature   //删除feature分支
+    $ git push origin master
+
+`--no-ff`合并时会创建一个新的`commit`，尽管可能是`fast-forward`合并方式，这避免了丢失`feature`分支的历史信息，对比如下：
+
+![两种merge方式的区别][4]
+
+5、`hotfix`:紧急修复生产`buf`的代码
+
+`hotfix-branch`
+
+![hotfix-branch][5]
 
 `Git`分支模型图：
 
-![Git分支模型][3]
+![Git分支模型][6]
 
 下面举一些可能在工作中面对的场景：
 1、组长分配新需求下来，安排下周上线(假设是12.27号)，你看看当前有没有下周版本的分支？有的话很简单，`checkout`下周分支(`feature_app1.0.0_12.27`)来开发就行，没有的话需要从`develop`分支创建一个新的`feature`分支(`feature_app1.1.0_12.27`)，然后将对应的`pom.xml`版本号修改成`1.1.0-SNAPSHOT`，注意命名，比如这里我用`feature`做前缀，你也可以自己设定一个规则
@@ -148,4 +177,7 @@
 
   [1]: https://www.liaoxuefeng.com/wiki/0013739516305929606dd18361248578c67b8067c8c017b000
   [2]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/tools/git%E6%B5%81%E7%A8%8B%E5%9B%BE.png
-  [3]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/tools/git-model.png
+  [3]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/tools/feature%20branch.png
+  [4]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/tools/merge--no-ff.png
+  [5]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/tools/hotfix-branch.png
+  [6]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/tools/git-model.png
