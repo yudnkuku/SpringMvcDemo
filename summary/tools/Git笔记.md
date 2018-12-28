@@ -215,7 +215,11 @@
 1、更新`index`区，更新工作区中`<commit>`和`HEAD`版本不一致的文件
 2、如果该文件有本地修改，那么此次`reset`操作取消
 
-以下几个例子：`git reset --option target`
+以下几个例子：
+
+`git reset --option target`
+
+
 |`--option`|`working`|`index`|`HEAD`|`target`|
 |:-:|:-:|:-:|:-:|:-:|
 ||`A`|`B`|`C`|`D`|
