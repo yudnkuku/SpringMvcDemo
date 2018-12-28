@@ -39,6 +39,7 @@
 
  - `git add`：将修改添加到暂存区(`stage`)
  - `git commit`:将暂存区所有文件提交到`master`分支，如果之前没有执行`git add`，命令行会报错`Changes not staged for commit`，执行完`git commit`后如果成功，命令行会显示`working tree clean`表示工作区是干净的，暂存区没有任何内容了
+ - `git commit -a -m "msg"`：这是一个组合操作，对于修改或者删除的文件直接提交到当前分支，而新增的文件不会受到影响
 
 
 ## 撤销修改 ##
@@ -77,7 +78,7 @@
 使用命令`git log --graph --pretty=oneline`可以查看分支合并图
 
 ## 分支管理策略 ##
-通常，合并分支时，`Git`会用`Fast Forward`模式，但这种模式下删除分之后会丢掉分支信息，如果强制禁用`ff`模式，`Git`会在`merge`时生成一个新的`commit`，从分支历史上会看到分支信息
+通常，合并分支时，`Git`会用`Fast Forward`模式，但这种模式下删除分支之后会丢掉分支信息，如果强制禁用`ff`模式，`Git`会在`merge`时生成一个新的`commit`，从分支历史上会看到分支信息
 主要命令：`git merge --no-ff -m "xxx" dev`使用`no ff`模式合并`dev`分支，因为会生成一个新的`commit`，使用`-m`标明提交信息
 
 ## Bug分支 ##
@@ -118,16 +119,45 @@
 ![Git流程图][2]
 
 ## Git分支模型 ##
+
 `Git`分支介绍：
-`master`：主干分支，发布到生产的代码
-`develop`:开发分支，预发布到生产的代码
-`release`:新版本分支，新版本要发布到生产的代码
-`feature`:新需求开发分支
-`hotfix`:紧急修复生产`buf`的代码
+
+1、`master`：主干分支，发布到生产的代码
+`origin/master`就是主要分支，其`HEAD`指向的源码反映了生产准备状态，`origin/develop`中`HEAD`指向的源码反映了最近为下一个发布版本提交的更改，这个分支也叫做集成分支，当`develop`分支的代码到达一个稳定点，并准备好发布时，其所有的改变都必须`merge`到`master`，并`tag`上发布版本编号
+
+2、`develop`:开发分支，预发布到生产的代码
+
+3、`release`:新版本分支，新版本要发布到生产的代码
+`release`分支可以从`develop`分支拉取，然后合并到`develop`和`master`分支，`release`分支通常用来准备新的生产版本发布
+
+4、`feature`:新需求开发分支
+`feature`分支一般从`develop`分支拉取，必须`merge`回`develop`。
+
+`feature-branch`
+
+![feature branch][3]
+
+`feature`分支用来开发新需求，从`develop`分支拉取，最后`merge`回`develop`分支
+
+    $ git checkout -b myfeature develop //创建feature分支并切换到feature分支
+    $ git checkout develop //切换到develop分支
+    $ git merge --no-ff -m "new feature" myfeature   //将feature分支merge回develop
+    $ git branch -d myfeature   //删除feature分支
+    $ git push origin master
+
+`--no-ff`合并时会创建一个新的`commit`，尽管可能是`fast-forward`合并方式，这避免了丢失`feature`分支的历史信息，对比如下：
+
+![两种merge方式的区别][4]
+
+5、`hotfix`:紧急修复生产`buf`的代码
+
+`hotfix-branch`
+
+![hotfix-branch][5]
 
 `Git`分支模型图：
 
-![Git分支模型][3]
+![Git分支模型][6]
 
 下面举一些可能在工作中面对的场景：
 1、组长分配新需求下来，安排下周上线(假设是12.27号)，你看看当前有没有下周版本的分支？有的话很简单，`checkout`下周分支(`feature_app1.0.0_12.27`)来开发就行，没有的话需要从`develop`分支创建一个新的`feature`分支(`feature_app1.1.0_12.27`)，然后将对应的`pom.xml`版本号修改成`1.1.0-SNAPSHOT`，注意命名，比如这里我用`feature`做前缀，你也可以自己设定一个规则
@@ -143,9 +173,107 @@
 6、告别了旧需求，迎来新需求就按照上面的流程走
 
 7、第二天，生产环境下一直报`NPE`异常，在`master`分支上拉取一个`hotfix_app1.1.1_1228`分支，修复`NPE`，打包上线，验证没问题了将`hotfix_app1.1.1_1228`分支合并到`develop`和`master`分支，并把`develop`分支合并到1227以后的版本
- 
+
+## 命令详解 ##
+1、`git fetch`:从其他仓库下载对象和引用，当没有指定远程仓库时，会默认使用`origin`远程仓库，除非当前分支有上游分支，`fetch`的引用和它们指向的对象名称都会被写入`.git/FETCH_HEAD`文件中，这些信息也会被`git`的其他命令使用，例如`git pull`
+
+2、`git pull`:从其他仓库`fetch`并和本地分支合并，`git pull`命令等价于`git fetch`和`git merge FETCH_HEAD`，也就是说`git pull`实际上先调用`git fetch`(可能带有指定参数)，然后调用`git merge`将`fetch`到的分支合并到当前分支，如果使用`--rebase`选项，那么会使用`git rebase`替代`git merge`
+
+3、`git branch`:当前分支会以星号标注
+
+4、`git merge`:将两个或者多个开发历史合并，这个命令也被`git pull`调用，也可以手动调用合并分支
+
+       A---B---C topic
+      /
+     D---E---F---G master
+
+调用`git merge topic`后，会生成一个新的`commit`：
+
+       A---B---C topic
+      /         \
+     D---E---F---G---H master
+
+5、`git reset`:将当前`HEAD`重置到指定的提交状态
+通常该命令会有如下形式：
+
+    git reset [<mode>] [<commit>]
+    
+这种形式会将当前分支`HEAD`指向`<commit>`指定的版本，可能会更新引用(将其重置为`<commit>`所指的树)，并且该工作树(`working tree`)依赖于`<mode>`，如果`<mode>`省略，more是`--mixed`，`<mode>`的可用选项如下：
+
+ - `--soft`:不会修改`index`区(也就是暂存区)或者工作区，但会将分支的`HEAD`指向`<commit>`，这时`stage`区和本地分支仓库状态就不一致，那么用`git status`打出来就是`Changes to be committed`
+总结一下：`--soft`会将当前分支库回退版本，但是不会回退暂存区，也不会清空工作区修改
+ - `--mixed`:重置`index`但不会重置工作树(例如修改的文件会被保留但是不会被标记为需要`commit`)，这是默认的配置
+总结一下：`--mixed`会将工作区和本地分支回退，`git status`状态为`Changed not staged`，需要被`add`进`stage`区(暂存区)
+ - `--hard`:将`index`区和工作区同时回退，工作区中自从`<commit>`版本起的所有修改都会被丢弃(也就是将工作区恢复到`<commit>`版本)
+总结一下：`--hard`会将工作区和本地分支回退，并将工作区的修改丢弃，此时工作区是`clean`的
+ - `--merge`:重置`index`区并将工作区中`<commit>`和`HEAD`版本不一致的文件更新，但是会保留那些工作区中还没有`add`到暂存区的文件(仅当`index`区和`HEAD`以及`<commit>`的版本一样，参考下面第六个表)，如果`<commit>`和`index`区版本不同的文件还没有`add`进`index`区，那么`reset`操作将禁止(`If a file that is deifferent between <commit> and the index has unstaged changes,reset is aborted`，前提是`<commit>`和`index`区版本不一样，再判断工作区是否有`unstaged`的文件)
+总结一下：
+1、更新`index`区，更新工作区中`<commit>`和`HEAD`版本不同的文件，但会保留工作区中和`index`区不同的文件
+2、如果该文件版本与`index`区的版本不一样(也就是`unstaged`)，那么此次`reset`操作取消
+ - `--keep`:将暂存区重置并将工作区中`<commit>`和`HEAD`版本不一致的文件更新(言外之意如果`<commit>`和`HEAD`版本相同，那么保持工作区不变，只更新`index`区)
+总结一下：
+1、更新`index`区，更新工作区中`<commit>`和`HEAD`版本不一致的文件
+2、如果该文件有本地修改，那么此次`reset`操作取消
+
+以下几个例子：`git reset --option target`
+|`--option`|`working`|`index`|`HEAD`|`target`|
+|:-:|:-:|:-:|:-:|:-:|
+||`A`|`B`|`C`|`D`|
+|`--soft`|`A`|`B`|`D`||
+|`--mixed`|`A`|`D`|`D`||
+|`--hard`|`D`|`D`|`D`||
+|`--merge`|`disallowed`||||
+|`--keep`|`disallowed`||||
+
+|`--option`|`working`|`index`|`HEAD`|`target`|
+|:-:|:-:|:-:|:-:|:-:|
+||`A`|`B`|`C`|`C`|
+|`--soft`|`A`|`B`|`C`||
+|`--mixed`|`A`|`C`|`C`||
+|`--hard`|`C`|`C`|`C`||
+|`--merge`|`disallowed`||||
+|`--keep`|`A`|`C`|`C`||
+
+|`--option`|`working`|`index`|`HEAD`|`target`|
+|:-:|:-:|:-:|:-:|:-:|
+||`B`|`B`|`C`|`D`|
+|`--soft`|`B`|`B`|`D`||
+|`--mixed`|`B`|`D`|`D`||
+|`--hard`|`D`|`D`|`D`||
+|`--merge`|`D`|`D`|`D`||
+|`--keep`|`disallowed`||||
+
+|`--option`|`working`|`index`|`HEAD`|`target`|
+|:-:|:-:|:-:|:-:|:-:|
+||`B`|`B`|`C`|`C`|
+|`--soft`|`B`|`B`|`C`||
+|`--mixed`|`B`|`C`|`C`||
+|`--hard`|`C`|`C`|`C`||
+|`--merge`|`C`|`C`|`C`||
+|`--keep`|`B`|`C`|`C`||
+
+|`--option`|`working`|`index`|`HEAD`|`target`|
+|:-:|:-:|:-:|:-:|:-:|
+||`B`|`C`|`C`|`D`|
+|`--soft`|`B`|`C`|`D`||
+|`--mixed`|`B`|`D`|`D`||
+|`--hard`|`C`|`D`|`D`||
+|`--merge`|`disallowed`||||
+|`--keep`|`disallowed`||||
+
+|`--option`|`working`|`index`|`HEAD`|`target`|
+|:-:|:-:|:-:|:-:|:-:|
+||`B`|`C`|`C`|`C`|
+|`--soft`|`B`|`C`|`C`||
+|`--mixed`|`B`|`C`|`C`||
+|`--hard`|`C`|`C`|`C`||
+|`--merge`|`B`|`C`|`C`||
+|`--keep`|`B`|`C`|`C`||
 
 
   [1]: https://www.liaoxuefeng.com/wiki/0013739516305929606dd18361248578c67b8067c8c017b000
   [2]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/tools/git%E6%B5%81%E7%A8%8B%E5%9B%BE.png
-  [3]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/tools/git-model.png
+  [3]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/tools/feature%20branch.png
+  [4]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/tools/merge--no-ff.png
+  [5]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/tools/hotfix-branch.png
+  [6]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/tools/git-model.png
