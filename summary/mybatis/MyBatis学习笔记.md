@@ -74,6 +74,7 @@
 ## 2.2 setting ##
 `MyBatis`参数设置，调整`MyBatis`的运行时行为，参考：[MyBatis设置][1]
 常用`setting`配置：
+
 |设置参数|描述|有效值|默认值|
 |:-:|:-:|:-:|:-:|
 |`cacheEnabled`|是否启用二级缓存，包括一级缓存和二级缓存|`true/false`|`true`|
