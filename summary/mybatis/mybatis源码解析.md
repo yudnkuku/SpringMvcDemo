@@ -549,8 +549,9 @@ ava`对象)映射成数据库中的记录
         return executor;
     }
 
-缓存查询流程：
+
 `MyBatis Cache`流程图：
+
 ![MyBatis流程图](https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/mybatis/MyBatis%20Cache%E6%B5%81%E7%A8%8B%E5%9B%BE.jpg)
 
 以`select`为例分析缓存源码，`DefaultSqlSession`：
