@@ -5,6 +5,7 @@
 ---
 
 ## Future ##
+
 `channel`的每个`outbound I/O`操作都会返回一个`ChannelFuture`，`ChannelFutrue`继承自`Future`，此`Future`接口继承自`juc`包中的`Future`接口，下面看看`Channel`中的一些`ountbound`方法
 
     ChannelFuture bind(SocketAddress localAddress);
@@ -42,11 +43,13 @@
 6、如果操作失败，打印错误原因
 
 ## 事件流 ##
+
 `Netty`将事件分为`inbound`和`outbound`两类事件，在`Channel`进行`I/O`相关操作时会触发事件，这些事件会在`ChannelPipeline`中传递，并交给对应的`ChannelHandler`处理。其内部的事件流如下所示：
 
 ![Netty Event Flow][1]
 
 ## ChannelInitializer ##
+
 它是一个特殊的`ChannelHandler`，当`Channel`注册到`EventLoop`中时初始化`Channel`，直接看源码：
 
     public abstract class ChannelInitializer<C extends Channel> extends ChannelHandlerAdapter {
@@ -77,6 +80,7 @@
     }
 
 ## ServerBootstrap和Bootstrap ##
+
 两者都用来引导`Netty`的本地配置。
 `ServerBootstrap`用于服务端，绑定本地端口，可以声明两个`EventLoopGroup`，一个用来处理客户端的连接请求(`Acceptor`线程池,还未创建`Channel`)，一个用来处理`I/O`操作(处理即将创建的`Channel`的所有事件)。
 `Bootstrap`用于客户端，连接到远程主机和端口，只能声明一个`EventLoopGroup`用于处理`Channel`的所有事件。
@@ -84,6 +88,7 @@
 ![ServerBootsrap和Bootstrap][2]
 
 ## 基于传输的API ##
+
 `ChannelPipeline`实现了常用的`InterceptingFilter`模型(拦截过滤器)，`Unix`管道是另一例子：命令链接在一起，一个命令的输出连接到下一行中的输入。你可以在运行时根据需要添加`ChannelHandler`实例到`ChannelPipeline`，或者从`ChannelPipeline`中删除，这能帮助你构建高度灵活的`Netty`程序。
 如下代码，写数据到远程已连接的客户端：
 
@@ -104,8 +109,11 @@
     });
 
 ## Netty核心功能之ByteBuf ##
+
 `ByteBuf`是一个随机、顺序访问的字节序列，通常我们通过`Unpooled`中的帮助方法来创建一个新的`buffer`。
+
 **随机访问**
+
 就像一个普通的字节数组，可以随机访问`ByteBuf`
 
     for(int i = 0; i < buffer.capacity(); i++) {
@@ -114,6 +122,7 @@
     }
 
 **序列化访问**
+
 `ByteBuf`提供了两个指针以支持读写操作：`readerIndex`和`writeIndex`
     
     0<=readerIndex<=writeIndex<=capacity
@@ -127,7 +136,9 @@
 **直接缓冲区Direct Buffer**
 
 ## ChannelHandler和ChannelPipeline ##
+
 **Channel生命周期**
+
 |状态|描述|
 |:-:|:-:|
 |`channelRegisterd`|`channel`注册到一个`EventLoop`(例如服务端接收到远程客户端的连接会触发该事件)|
@@ -193,6 +204,7 @@
             }
 
 **ChannelPipeline源码分析**
+
 在通过`ServerBootstrap`引导启动服务端时，会构建一个`NioServerSocketChannel`实例，该实例最顶层父类是`AbstractChannel`，可以看下其构造方法代码：
 
     protected AbstractChannel(Channel parent, EventLoop eventLoop) {
@@ -1141,8 +1153,11 @@
         logger.info("Migrated " + nChannels + " channel(s) to the new Selector.");
     }
 总结`rebuildSelector()`过程：
+
 1、通过方法`openSelector`创建一个新的`new selector`
+
 2、遍历`old selector`关联的`selectionKey`，调用`key.cancel()`取消注旧的注册关系，将`channel`重新注册到新的`new selector`
+
 3、将内部的`selector`更新为新的`new selector`，调用`oldSelector.close()`方法关闭`old selector`
 
 接着继续执行`I/O`操作和其他任务：
@@ -1300,8 +1315,7 @@
         super(parent, eventLoop, ch, SelectionKey.OP_READ);
     }
     
-    后面的流程和NioServerSocketChannel一样了，只是在下面的代码中会存在多态情况：
-    
+    //后面的流程和NioServerSocketChannel一样了，只是在下面的代码中会存在多态情况：
     protected AbstractChannel(Channel parent, EventLoop eventLoop) {
         this.parent = parent;
         this.eventLoop = validate(eventLoop);
@@ -1314,12 +1328,7 @@
     }
     
 **NioServerSocketChannel & NioSocketChannel**
-
-`NioServerSocketChannel`
-
 ![NioServerSocketChannel类图][4]
-
-`NioSocketChannel`
 
 ![NioSocketChannel类图][5]
 
@@ -1408,8 +1417,9 @@
         return byteBuf.writeBytes(javaChannel(), byteBuf.writableBytes());
     }
 
+
   [1]: https://7n.w3cschool.cn/attachments/image/20170808/1502159113476213.jpg
   [2]: https://7n.w3cschool.cn/attachments/image/20170808/1502159260674064.jpg
-  [3]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/image/ChannelPipeline.png
+  [3]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/nio/ChannelPipeline.png
   [4]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/nio/NioServerSocketChannel.png
   [5]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/nio/NioSocketChannel.png
