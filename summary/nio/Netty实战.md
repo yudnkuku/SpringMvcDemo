@@ -960,8 +960,49 @@
                 selectionKey = javaChannel().register(eventLoop().selector, 0, this);
                 return;
             } 
-        
-`step2`:
+            
+`step2`：`boss`线程会不断轮询`NioServerSocketChannel`相关的`selector`是否有关心的操作(客户端的连接请求)，此轮询过程在`NioEventLoop`的`run`方法中，在死循环中不断轮询，最后进入方法`processSelectedKey`：
+
+    private static void processSelectedKey(SelectionKey k, AbstractNioChannel ch) {
+        final NioUnsafe unsafe = ch.unsafe();
+        if (!k.isValid()) {
+            // close the channel if the key is not valid anymore
+            unsafe.close(unsafe.voidPromise());
+            return;
+        }
+
+        try {
+            int readyOps = k.readyOps();
+            //如果准备好读或者接收客户端连接
+            if ((readyOps & (SelectionKey.OP_READ | SelectionKey.OP_ACCEPT)) != 0 || readyOps == 0) {
+                //调用unsafe.read()方法，这里会有两种不同的实现，NioServerSocketChannel对应NioMessageUnsafe，NioSocketChannel对应NioByteUnsafe
+                unsafe.read();
+                if (!ch.isOpen()) {
+                    // Connection already closed - no need to handle write.
+                    return;
+                }
+            }
+    
+    //对于NioServerSocketChannel进入NioMessageUnsafe.read方法，其核心就是doReadMessages方法，核心代码如下：
+    protected int doReadMessages(List<Object> buf) throws Exception {
+        SocketChannel ch = javaChannel().accept();
+
+        try {
+            if (ch != null) {
+                //构建NioSocketChannel实例，添加到buf中
+                buf.add(new NioSocketChannel(this, childEventLoopGroup().next(), ch));
+                return 1;
+            }
+        }
+    
+    //在NioMessageUnsafe.read方法中调用fireChannelRead方法：
+    int size = readBuf.size();
+    for (int i = 0; i < size; i ++) {
+        //上面的buf里保存的内容作为参数msg传递给pipeline.fireChannelRead()
+        pipeline.fireChannelRead(readBuf.get(i));
+    }
+    
+`step2`:接着上面会进入`ServerBootstrapAcceptor.channelRead()`
 `ServerBootstrapAcceptor.channelRead()`方法：
 
     public void channelRead(ChannelHandlerContext ctx, Object msg) {
@@ -1465,6 +1506,7 @@
     protected int doReadBytes(ByteBuf byteBuf) throws Exception {
         return byteBuf.writeBytes(javaChannel(), byteBuf.writableBytes());
     }
+
 
 
   [1]: https://7n.w3cschool.cn/attachments/image/20170808/1502159113476213.jpg
