@@ -236,6 +236,7 @@
     }
 
 **ChannelPipeline触发事件**
+
 例如触发`Inbound`事件，`Inbound`事件一般从`head`开始往后遍历`pipeline`，`DefaultChannelPipeline.fireChannelRegistered()`代码：
 
     public ChannelPipeline fireChannelRegistered() {
@@ -300,9 +301,12 @@
                 flags |= MASK_HANDLER_REMOVED;
             }
             
+`ChannelPipeline`类图
+
 ![ChannelPipeline][3]
 
 **ChannelHandler**
+
 `Handler`生命周期方法:
 
  - `handlerAdd(ChannelHandlerContext ctx)`:当`handler`添加到`ctx`中时回调
@@ -342,6 +346,7 @@
 
 
 **ChannelHandlerContext**
+
 在`ChannelHandler`添加到`ChannelPipeline`时会创建一个实例，就是接口`ChannelHandlerContext`，在源码中可以看到：
     
     //调用addLast方法添加ChannelHandler实例，会最终构造一个ChannelHandlerContext实例，并将其添加进ChannelPipeline
@@ -428,7 +433,7 @@
 
 ## 线程模型源码分析 ##
 服务端在启动时，创建了两个`NioEventLoopGroup`，它们实际上是两个独立的`Reactor`线程池，一个用于接收客户端的`TCP`连接，另一个用于处理`I/O`相关的读写操作，或者执行系统`Task`、定时任务`Task`。
-`Netty`的`NioEventLoop`并不是一个纯粹的`I/O`线程，它除了负责`I/O`的读写之外，还兼顾处理一下两类任务。
+`Netty`的`NioEventLoop`并不是一个纯粹的`I/O`线程，它除了负责`I/O`的读写之外，还兼顾处理以下两类任务。
 1、系统`Task`：通过调用`NioEventLoop`的`execute(Runnable task)`方法实现，`Netty`有很多系统`Task`，创建它们的主要原因是：当`I/O`线程和用户线程同时操作网络资源时，为了防止并发操作导致的锁竞争，将用户线程的操作封装成`Task`放入消息队列中，由`I/O`线程负责执行，这样就实现了局部无锁化。
 2、定时任务：通过调用`NioEventLoop`的`schedule(Runnble command, long  delay, TimeUnit unit)`方法实现
 
@@ -468,7 +473,7 @@
     }
     
     //父类MultithreadEventLoopGroup
-    //nThreads=0,使用DEFAULT_EVENT_LOOP_THREADS
+    //nThreads=0，使用DEFAULT_EVENT_LOOP_THREADS，默认是处理器核心的2倍
     protected MultithreadEventLoopGroup(int nThreads, ThreadFactory threadFactory, Object... args) {
         super(nThreads == 0 ? DEFAULT_EVENT_LOOP_THREADS : nThreads, threadFactory, args);
     }
@@ -886,7 +891,7 @@
 
 捋一捋事件回调的顺序：
 
-    首先通过代码channel.unsafe().register(regFuture)手动注册NioServerSocketChannel，此时将产生注册事件，触发该NioServerSocketChannel的channelRegistered()回调，将ServerBootstrapAcceptor添加到该NioServerSocketChannel的ChannelPipeline上，接着回调ServerBootstrapAcceptor的channelRead方法，其中传递的msg就是服务端等待连接后生成的Channel实例(实际上也是NioSocketChannel实例)，可以向下转型为NioSocketChannel，在channelRead回调方法中将ServerBootstrap设置的childHandler添加到该NioSocketChannel的ChannelPipeline，该NioSocketChannel只对读事件感兴趣，同时会在该channelRead回调最后调用child.unsafe().register()方法，开启单独的线程执行NioEventLoop的run方法，接下来就可以通过selector的轮询来读取客户端的消息
+    首先通过代码channel.unsafe().register(regFuture)手动注册NioServerSocketChannel，注册完后会触发pipeline.fireChannelRegistered()方法，触发该NioServerSocketChannel的channelRegistered()回调，将ServerBootstrapAcceptor添加到该NioServerSocketChannel的ChannelPipeline上，接着IO线程不断轮询NioServerSocketChannel相关的selector是否有关心的IO操作，例如客户端的连接请求，当有客户端的连接请求时，会调用unsafe.read()方法读取客户端消息(客户端连接)，在这过程中会实例化NioSocketChannel，并触发pipeline.fireChannelRead(msg)方法，并将该NioSocketChannel作为msg参数传入，接着会调用ServerBootstrapAcceptor的channelRead方法，其中传递的msg就是服务端等待连接后生成的NioSocketChannel实例，在channelRead回调方法中将ServerBootstrap设置的childHandler添加到该NioSocketChannel的ChannelPipeline，该NioSocketChannel只对读事件感兴趣，同时会在该channelRead回调最后调用child.unsafe().register()方法，开启单独的线程执行NioEventLoop的run方法，接下来就可以通过selector的轮询来读取客户端发送的字节消息
     
 `step1`:
 `AbstractBootstrap.initAndRegister()`方法：
@@ -913,6 +918,49 @@
         channel.unsafe().register(regFuture);
         ...   
     }
+    
+    //AbstractUnsafe.register()方法
+    public final void register(final ChannelPromise promise) {
+            if (eventLoop.inEventLoop()) {
+                register0(promise);
+            } else {
+                try {
+                    //将register0封装成task放在IO线程中执行
+                    eventLoop.execute(new Runnable() {
+                        @Override
+                        public void run() {
+                            register0(promise);
+                        }
+                    });
+                } 
+    //register0方法    
+    private void register0(ChannelPromise promise) {
+            try {
+                // check if the channel is still open as it could be closed in the mean time when the register
+                // call was outside of the eventLoop
+                if (!ensureOpen(promise)) {
+                    return;
+                }
+                //核心是调用doRegister()方法
+                doRegister();
+                registered = true;
+                promise.setSuccess();
+                //注册完后调用pipeline.fireChannelRegistered()方法
+                pipeline.fireChannelRegistered();
+                if (isActive()) {
+                    pipeline.fireChannelActive();
+                }
+            }
+    
+    //AbstractNioChannel.doRegister()方法
+    protected void doRegister() throws Exception {
+        boolean selected = false;
+        for (;;) {
+            try {
+                selectionKey = javaChannel().register(eventLoop().selector, 0, this);
+                return;
+            } 
+        
 `step2`:
 `ServerBootstrapAcceptor.channelRead()`方法：
 
@@ -936,7 +984,7 @@
             for (Entry<AttributeKey<?>, Object> e: childAttrs) {
                 child.attr((AttributeKey<Object>) e.getKey()).set(e.getValue());
             }
-            //调用unsafe的注册方法，会开启单独的线程执行NioEventLoop的run()方法，接下来就可以接收客户端发来的消息数据
+            //调用unsafe的注册方法，将register0封装成task，会开启单独的线程执行NioEventLoop的run()方法，接下来就可以接收客户端发来的消息数据
             child.unsafe().register(child.newPromise());
         }
 
@@ -1328,6 +1376,7 @@
     }
     
 **NioServerSocketChannel & NioSocketChannel**
+
 ![NioServerSocketChannel类图][4]
 
 ![NioSocketChannel类图][5]
