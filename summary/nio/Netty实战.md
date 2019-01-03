@@ -1506,9 +1506,254 @@
     protected int doReadBytes(ByteBuf byteBuf) throws Exception {
         return byteBuf.writeBytes(javaChannel(), byteBuf.writableBytes());
     }
+    
 
+## bind过程解析 ##
+首先看看`AbstractBootstrap.bind`方法：
 
+    private ChannelFuture doBind(final SocketAddress localAddress) {
+        //初始化channel并注册
+        final ChannelFuture regFuture = initAndRegister();
+        final Channel channel = regFuture.channel();
+        if (regFuture.cause() != null) {
+            return regFuture;
+        }
 
+        final ChannelPromise promise;
+        if (regFuture.isDone()) {
+            //注册完成，调用doBind0开始绑定端口
+            promise = channel.newPromise();
+            doBind0(regFuture, channel, localAddress, promise);
+        } else {
+            // Registration future is almost always fulfilled already, but just in case it's not.
+            promise = new DefaultChannelPromise(channel, GlobalEventExecutor.INSTANCE);
+            regFuture.addListener(new ChannelFutureListener() {
+                @Override
+                public void operationComplete(ChannelFuture future) throws Exception {
+                    doBind0(regFuture, channel, localAddress, promise);
+                }
+            });
+        }
+
+        return promise;
+    }
+    
+    //继续进入doBind0
+    private static void doBind0(
+            final ChannelFuture regFuture, final Channel channel,
+            final SocketAddress localAddress, final ChannelPromise promise) {
+
+        // This method is invoked before channelRegistered() is triggered.  Give user handlers a chance to set up
+        // the pipeline in its channelRegistered() implementation.
+        //将bind封装成task执行
+        channel.eventLoop().execute(new Runnable() {
+            @Override
+            public void run() {
+                if (regFuture.isSuccess()) {
+                    channel.bind(localAddress, promise).addListener(ChannelFutureListener.CLOSE_ON_FAILURE);
+                } else {
+                    promise.setFailure(regFuture.cause());
+                }
+            }
+        });
+    }
+
+进入`AbstractChannel.bind`方法：
+
+    public ChannelFuture bind(SocketAddress localAddress, ChannelPromise promise) {
+        return pipeline.bind(localAddress, promise);
+    }
+
+进入`DefaultChannelPipeline.bind`：
+
+    public ChannelFuture bind(SocketAddress localAddress, ChannelPromise promise) {
+        return tail.bind(localAddress, promise);
+    }
+
+进入`DefaultChannelHandlerContext.bind`：
+
+    public ChannelFuture bind(final SocketAddress localAddress, final ChannelPromise promise) {
+        DefaultChannelHandlerContext next = findContextOutbound(MASK_BIND);
+        next.invoker.invokeBind(next, localAddress, promise);
+        return promise;
+    }
+
+进入`DefaultChannelHandlerInvoker.invokeBind`方法：
+
+    public void invokeBind(
+            final ChannelHandlerContext ctx, final SocketAddress localAddress, final ChannelPromise promise) {
+        if (localAddress == null) {
+            throw new NullPointerException("localAddress");
+        }
+        validatePromise(ctx, promise, false);
+
+        if (executor.inEventLoop()) {
+            invokeBindNow(ctx, localAddress, promise);
+        } else {
+            safeExecuteOutbound(new Runnable() {
+                @Override
+                public void run() {
+                    invokeBindNow(ctx, localAddress, promise);
+                }
+            }, promise);
+        }
+    }
+    
+    //继续invokeBindNow
+    public static void invokeBindNow(
+            final ChannelHandlerContext ctx, final SocketAddress localAddress, final ChannelPromise promise) {
+        try {
+            ctx.handler().bind(ctx, localAddress, promise);
+        } catch (Throwable t) {
+            notifyOutboundHandlerException(t, promise);
+        }
+    }
+
+进入`HeadHandler.bind`：
+
+    public void bind(
+                ChannelHandlerContext ctx, SocketAddress localAddress, ChannelPromise promise)
+                throws Exception {
+            unsafe.bind(localAddress, promise);
+        }
+        
+进入`AbstractUnsafe.bind`：
+
+    public final void bind(final SocketAddress localAddress, final ChannelPromise promise) {
+            if (!ensureOpen(promise)) {
+                return;
+            }
+
+            boolean wasActive = isActive();
+            try {
+                //(1)调用NioServerSocketChannel.doBind方法
+                doBind(localAddress);
+            } catch (Throwable t) {
+                promise.setFailure(t);
+                closeIfClosed();
+                return;
+            }
+            if (!wasActive && isActive()) {
+                //(2)绑定完成后执行任务，fireChannelActive
+                invokeLater(new Runnable() {
+                    @Override
+                    public void run() {
+                        pipeline.fireChannelActive();
+                    }
+                });
+            }
+            promise.setSuccess();
+        }
+
+(1)进入`NioServerSocketChannel.doBind`方法：
+
+    protected void doBind(SocketAddress localAddress) throws Exception {
+        javaChannel().socket().bind(localAddress, config.getBacklog());
+    }
+
+(2)进入`DefaultChannelPipeline.fireChannelActive`：
+
+    public ChannelPipeline fireChannelActive() {
+        head.fireChannelActive();
+
+        if (channel.config().isAutoRead()) {
+            //调用channel.read()方法
+            channel.read();
+        }
+
+        return this;
+    }
+    
+    //AbstractChannel.read
+    public Channel read() {
+        pipeline.read();
+        return this;
+    }
+    
+    //DefaultChannelPiepeline.read
+    public ChannelPipeline read() {
+        tail.read();
+        return this;
+    }
+    
+    //DefaultChannelHandlerContext.read
+    public ChannelHandlerContext read() {
+        DefaultChannelHandlerContext next = findContextOutbound(MASK_READ);
+        next.invoker.invokeRead(next);
+        return this;
+    }
+    
+    //DefaultChannelHandlerInvoker.invokeRead
+    public void invokeRead(final ChannelHandlerContext ctx) {
+        if (executor.inEventLoop()) {
+            invokeReadNow(ctx);
+        } else {
+            DefaultChannelHandlerContext dctx = (DefaultChannelHandlerContext) ctx;
+            Runnable task = dctx.invokeReadTask;
+            if (task == null) {
+                dctx.invokeReadTask = task = new Runnable() {
+                    @Override
+                    public void run() {
+                        invokeReadNow(ctx);
+                    }
+                };
+            }
+            executor.execute(task);
+        }
+    }
+    
+    //invokeReadNow
+    public static void invokeReadNow(final ChannelHandlerContext ctx) {
+        try {
+            ctx.handler().read(ctx);
+        } catch (Throwable t) {
+            notifyHandlerException(ctx, t);
+        }
+    }
+    
+    //HeadHandler.read
+    public void read(ChannelHandlerContext ctx) {
+            unsafe.beginRead();
+        }
+        
+    //AbstractUnsafe.beginRead
+    public void beginRead() {
+            if (!isActive()) {
+                return;
+            }
+
+            try {
+                doBeginRead();
+            } catch (final Exception e) {
+                invokeLater(new Runnable() {
+                    @Override
+                    public void run() {
+                        pipeline.fireExceptionCaught(e);
+                    }
+                });
+                close(voidPromise());
+            }
+        }
+        
+    //进入子类AbstractNioChannel.doBeginRead
+    protected void doBeginRead() throws Exception {
+        if (inputShutdown) {
+            return;
+        }
+        //this.selectionKey是在执行注册方法doRegister时构造的，如下设置了selectionKey的感兴趣操作为0
+        //selectionKey = javaChannel().register(eventLoop().selector, 0, this)
+        final SelectionKey selectionKey = this.selectionKey;
+        if (!selectionKey.isValid()) {
+            return;
+        }
+        //selectionKey.interestOps初始值是0
+        final int interestOps = selectionKey.interestOps();
+        //readInterestOp在构造Channel时就指定了，对于NioServerSocketChannel是SelectionKey.OP_ACCEPT，对于NioSocketChannel是SelectionKey.OP_READ
+        if ((interestOps & readInterestOp) == 0) {
+            //设置selectionKey感兴趣的操作为 interestOps | readInterestOp
+            selectionKey.interestOps(interestOps | readInterestOp);
+        }
+    }
   [1]: https://7n.w3cschool.cn/attachments/image/20170808/1502159113476213.jpg
   [2]: https://7n.w3cschool.cn/attachments/image/20170808/1502159260674064.jpg
   [3]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/nio/ChannelPipeline.png
