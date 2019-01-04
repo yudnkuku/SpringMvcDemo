@@ -307,5 +307,91 @@
 
 ## JDK动态代理 ##
 
+## 泛型 ##
+先来看一个错误：
+
+    List<? extends Foo> list1 = new ArrayList<Foo>();
+    list1.add(new Foo());   //won't compile
+    
+
+在`Java`语言中，数组时协变的，也就是说，如果`Integer`拓展了`Number`，那么不仅仅`Integer`是`Number`，而且`Integer[]`也是`Number[]`，在要求`NUmber[]`的地方完全可以传递或者赋予`Integer[]`(更正式的说，如果`Number`是`Integer`的超类型，那么`Number[]`也是`Integer[]`的超类型)。但是在泛型类型中`List<Number>`不是`List<Integer>`的超类型，也就是说在需要`List<Number>`的地方不能传递`List<Integer>`
+
+例如如下代码在编译时就会报错：
+
+    List<String> strList = new ArrayList<>();
+    List<Object> objList = strList;    //compile error
+    
+解释：泛型的作用是在编译期告诉编译期参数应该是什么类型，泛型会在运行时期擦除，例如上述`objList`在编译器确定元素类型时`Object`，那么只要是`? extends Object`的元素应该都能插入集合，但是实际上却赋值`strList`，这个时候会破坏类型安全。
+
+**PECS法则**
+
+如下代码：
+
+    HashMap<T extends Foo>
+    HashMap<? extends Foo>
+    HashMap<T super Foo>
+    HashMap<? super Foo>
+
+主要涉及的是`Java`泛型中重要的`PECS`法则：
+1、`？ extends T`
+类型的上界是`T`，参数化类型可能是`T`或者`T`的子类
+    
+    class Food{}
+    class Fruit extends Food {}
+    class Apple extends Fruit {}
+    List<? extends Fruit> fruits = new ArrayList<>();
+    fruits.add(new Food()); //compile error
+    fruits.add(new Fruit());//compile error
+    fruits.add(new Apple());//compile error
+
+    fruits = new ArrayList<Fruit>(); //compile success
+    fruits = new ArrayList<Food>();  //compile error
+    fruits = new ArrayList<Apple>(); //compile success
+    fruits = new ArrayList<? extends Fruit>();   //compile error:通配符无法实例化
+    Fruit object = fruits.get(0);
+    
+存入数据：
+
+ - 赋值时参数化类型为`Fruit`的集合和其子类的集合都可以成功，通配符类型无法实例化
+ - 编译期会阻止将`Apple`类加入`fruitss`，在向`fruits`集合中添加元素时，编译期会检查类型是否符合要求。`List<? extends Fruit>`这样的声明只会告诉编译期集合中元素是`Fruit`的子类，至于具体是什么类只能在运行时期才能确定，因此为了类型安全，只好阻止向其中加入任何子类，也就是说`List<? extends Fruit>`这样声明的集合无法添加任何子类元素
+
+读取数据：
+由于编译期知道它总是`Fruit`的子类型，因此我们总可以从中读取出`Fruit`对象
+
+    Fruit fruit = fruits.get(0)
+
+对于`? extends Foo`声明的集合只能作为生产者，从中获取元素，无法往其中添加元素
+ 
+2、`? super T`
+表示类型的下界是`T`，参数化类型可以是`T`或`T`的超类：
+
+    List<? super Fruit> fruits = new ArrayList<>();
+    fruits.add(new Food()); //compile error
+    fruits.add(new Fruit());//compile success
+    fruits.add(new Apple());//compile success
+
+    fruits = new ArrayList<Fruit>(); //compile success
+    fruits = new ArrayList<Food>();  //compile success
+    fruits = new ArrayList<Apple>(); //compile error
+    fruits = new ArrayList<? super Fruit>();   //compile error:通配符无法实例化
+    Fruit object = fruits.get(0);   //compile error
+
+存入数据：
+
+ - `super`通配符类型同样不能实例化，对于`List<? super Fruit>`的集合均可被赋值为`Fruit`超类`List`，例如`fruits = new ArrayList<Food>()`
+ - 编译器已经知道集合中元素是`Fruit`的超类，因此往其中添加`Fruit`的子类元素是必然没有问题的
+
+读取数据：
+编译期在不知道这个超类具体是什么类，只能返回`Object`对象
+
+    Object fruit = fruits.get(0);
+
+ 
+**PECS原则总结**
+总结如下：
+
+ - 如果要从集合中读取类型`T`的数据，并且不能写入，那么该集合作为生产者，必须使用`? extends T`通配符(`Producer Extends`)
+ - 如果要往集合中写入类型`T`的数据，并且不能读取，那么该集合作为消费者，必须使用`? super T`通配符(`Consumer Super`)
+ - 如果既要写又要读，那么建议不适用任何通配符
 
   [1]: https://coolshell.cn/articles/9606.html
