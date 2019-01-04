@@ -459,7 +459,9 @@
 ## 非阻塞管道和阻塞管道的区别 ##
 其根本区别是数据如何从底层的`Channel`读取
 `IO`管道从流中(`socket`或者文件)读取数据并将数据切分成一些相关的消息，这类似于将数据流切分成`tokens`，然后再用`tokenizer`解析。相反，我们会将数据流切分成更大的消息，这个组件称为`Message Reader`
+
 ![MessageReader][2]
+
 阻塞式`IO`管道使用类似`InputStream`的接口，一次只能从底层的`channel`中读取一个字节的数据，并且会阻塞直到有数据可读，使用阻塞式的`IO`接口简化了`Message Reader`的实现，阻塞式的`Message Reader`无法处理无数据可读或者只读取了部分数据并且随后需要恢复消息解析的情况。类似的，阻塞式`Message Writer`也无法处理只写入部分消息或者写入的部分消息随后需要恢复的情况。
 
 ## 阻塞式IO管道的缺点 ##
@@ -532,7 +534,9 @@
 在非阻塞`IO`管道中写数据也是一个挑战，当你在非阻塞的`channel`上调用`write(ByteBuffer)`时，无法保证`ByteBuffer`中有多少字节被写出的，`write(ByteBuffer)`方法返回了写出的字节数，因此可以追踪已写的字节数量，这就是关键所在：跟踪部分写出的数据，保证最后消息的所有字节都被发送出去。
 为了管理向`channel`写入部分消息，我们会创建`Message Writer`，和`Message Reader`一样，对于每一个`channel`配置一个`Message Writer`，在`Message Writer`内部我们会跟踪写入的消息字节数量。
 `Message Writer`内部维护了一个队列，当更多的消息到达时，需要入队，`Message Writer`会尽快将其写入`Channel`。
+
 ![Message Writer][6]
+
 如果你有大量的连接，那么会存在大量的`Message Writer`实例(对于每个`channel`都会分配一个`Message Writer`)，检查大量的`Message Writer`实例是否有数据可写是非常慢的，首先很多`Message Writer`实例没有任何消息发送，这些实例没必要检查；其次不是所有的`channel`实例都准备好被写入数据，这些通道也无法写入数据。
 检查`channel`是否写准备可以通过注册`Selector`，但是我们不想给每个`channel`都注册选择器，因为可能会有大量的连接是空闲的，它们默认是写准备的。
 为了避免检查所有的`Message Writer`和`Channel`实例，采用两种方式：
@@ -556,6 +560,7 @@
 
 ## 服务器线程模型 ##
 这个非阻塞服务器实现使用了2个线程的线程模型，第一个线程从`ServerSocketChannel`接收到来的连接，第二个线程处理接受的连接，这意味着读消息、处理消息和写入相应。
+
 ![Non Blocking Server Thread Model][8]
 
 
