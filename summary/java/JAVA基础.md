@@ -313,7 +313,303 @@
 上述两类流在构造时可以显示指定字符编码格式，因此在字节流和字符流相互转换时需要使编码格式保持一致，否则会出现乱码现象
 
 ## JDK动态代理 ##
+先看看`jdk`中动态代理的常用使用场景：
 
+    ClassLoader cl = Thread.currentThread().getContextClassLoader();
+    //获取被代理类实现的接口
+    Service serviceImpl = new ServiceImpl();
+    Class[] interfaces = serviceImpl.getClass().getInterfaces();
+    Object proxy = Proxy.newProxyInstance(cl, interfaces, 
+                        new MyInvocationHandler(){
+                            
+                            @Override
+                            public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+                                //some
+                            }
+                        });
+    
+其中最关键的方法是`Proxy.newProxyInstance()`，它用来创建接口的代理类，看一下源码：
+
+    public static Object newProxyInstance(ClassLoader loader,
+                                          Class<?>[] interfaces,
+                                          InvocationHandler h)
+        throws IllegalArgumentException
+    {
+        Objects.requireNonNull(h);
+
+        final Class<?>[] intfs = interfaces.clone();
+        final SecurityManager sm = System.getSecurityManager();
+        if (sm != null) {
+            checkProxyAccess(Reflection.getCallerClass(), loader, intfs);
+        }
+
+        /*
+         * Look up or generate the designated proxy class.
+         */
+        //查找或者生成代理类
+        Class<?> cl = getProxyClass0(loader, intfs);
+
+        /*
+         * Invoke its constructor with the designated invocation handler.
+         */
+        try {
+            if (sm != null) {
+                checkNewProxyPermission(Reflection.getCallerClass(), cl);
+            }
+            //获取代理类cl带有参数类型为InvocationHandler的构造方法
+            final Constructor<?> cons = cl.getConstructor(constructorParams);
+            final InvocationHandler ih = h;
+            if (!Modifier.isPublic(cl.getModifiers())) {
+                AccessController.doPrivileged(new PrivilegedAction<Void>() {
+                    public Void run() {
+                        cons.setAccessible(true);
+                        return null;
+                    }
+                });
+            }
+            //通过反射构造代理类实例，构造参数就是传进来的InvocationHandler实例
+            return cons.newInstance(new Object[]{h});
+        } catch (IllegalAccessException|InstantiationException e) {
+            throw new InternalError(e.toString(), e);
+        } catch (InvocationTargetException e) {
+            Throwable t = e.getCause();
+            if (t instanceof RuntimeException) {
+                throw (RuntimeException) t;
+            } else {
+                throw new InternalError(t.toString(), t);
+            }
+        } catch (NoSuchMethodException e) {
+            throw new InternalError(e.toString(), e);
+        }
+    }
+
+继续看`getProxyClass0`:
+
+    private static Class<?> getProxyClass0(ClassLoader loader,
+                                           Class<?>... interfaces) {
+        if (interfaces.length > 65535) {
+            throw new IllegalArgumentException("interface limit exceeded");
+        }
+
+        // If the proxy class defined by the given loader implementing
+        // the given interfaces exists, this will simply return the cached copy;
+        // otherwise, it will create the proxy class via the ProxyClassFactory
+        //上面的英文翻译过来大致意思是如果指定类加载器加载的且实现了指定接口的proxy类存在，那么直接返回缓存中的副本，否则会通过ProxyClassFactory创建
+        //从proxyClassCache中获取代理类
+        return proxyClassCache.get(loader, interfaces);
+    }
+    //proxyClassCache定义
+    private static final WeakCache<ClassLoader, Class<?>[], Class<?>>
+        proxyClassCache = new WeakCache<>(new KeyFactory(), new ProxyClassFactory());
+
+进入`ProxyClassFactory`：
+
+    private static final class ProxyClassFactory
+        implements BiFunction<ClassLoader, Class<?>[], Class<?>>
+    {
+        // prefix for all proxy class names
+        //代理类名称前缀："$Proxy"
+        private static final String proxyClassNamePrefix = "$Proxy";
+
+        // next number to use for generation of unique proxy class names
+        //原子计数器，用来对代理类进行编号
+        private static final AtomicLong nextUniqueNumber = new AtomicLong();
+
+        @Override
+        public Class<?> apply(ClassLoader loader, Class<?>[] interfaces) {
+
+            Map<Class<?>, Boolean> interfaceSet = new IdentityHashMap<>(interfaces.length);
+            for (Class<?> intf : interfaces) {
+                /*
+                 * Verify that the class loader resolves the name of this
+                 * interface to the same Class object.
+                 */
+                Class<?> interfaceClass = null;
+                try {
+                    interfaceClass = Class.forName(intf.getName(), false, loader);
+                } catch (ClassNotFoundException e) {
+                }
+                if (interfaceClass != intf) {
+                    throw new IllegalArgumentException(
+                        intf + " is not visible from class loader");
+                }
+                /*
+                 * Verify that the Class object actually represents an
+                 * interface.
+                 */
+                //不是接口抛出异常
+                if (!interfaceClass.isInterface()) {
+                    throw new IllegalArgumentException(
+                        interfaceClass.getName() + " is not an interface");
+                }
+                /*
+                 * Verify that this interface is not a duplicate.
+                 */
+                if (interfaceSet.put(interfaceClass, Boolean.TRUE) != null) {
+                    throw new IllegalArgumentException(
+                        "repeated interface: " + interfaceClass.getName());
+                }
+            }
+            
+            //代理类包路径
+            String proxyPkg = null;     // package to define proxy class in
+            //初始化访问标志accessFlags
+            int accessFlags = Modifier.PUBLIC | Modifier.FINAL;
+
+            /*
+             * Record the package of a non-public proxy interface so that the
+             * proxy class will be defined in the same package.  Verify that
+             * all non-public proxy interfaces are in the same package.
+             */
+            for (Class<?> intf : interfaces) {
+                int flags = intf.getModifiers();
+                if (!Modifier.isPublic(flags)) {
+                    accessFlags = Modifier.FINAL;
+                    String name = intf.getName();
+                    int n = name.lastIndexOf('.');
+                    String pkg = ((n == -1) ? "" : name.substring(0, n + 1));
+                    if (proxyPkg == null) {
+                        proxyPkg = pkg;
+                    } else if (!pkg.equals(proxyPkg)) {
+                        throw new IllegalArgumentException(
+                            "non-public interfaces from different packages");
+                    }
+                }
+            }
+
+            if (proxyPkg == null) {
+                // if no non-public proxy interfaces, use com.sun.proxy package
+                //ReflectUtil.PROXY_PACKAGE="com.sun.proxy"
+                proxyPkg = ReflectUtil.PROXY_PACKAGE + ".";
+            }
+
+            /*
+             * Choose a name for the proxy class to generate.
+             */
+            long num = nextUniqueNumber.getAndIncrement();
+            String proxyName = proxyPkg + proxyClassNamePrefix + num;
+
+            /*
+             * Generate the specified proxy class.
+             */
+            //调用ProxyGenerator生产代理类字节数组
+            byte[] proxyClassFile = ProxyGenerator.generateProxyClass(
+                proxyName, interfaces, accessFlags);
+            try {
+                //通过ClassLoader和类字节数组来构造代理类
+                return defineClass0(loader, proxyName,
+                                    proxyClassFile, 0, proxyClassFile.length);
+            } catch (ClassFormatError e) {
+                /*
+                 * A ClassFormatError here means that (barring bugs in the
+                 * proxy class generation code) there was some other
+                 * invalid aspect of the arguments supplied to the proxy
+                 * class creation (such as virtual machine limitations
+                 * exceeded).
+                 */
+                throw new IllegalArgumentException(e.toString());
+            }
+        }
+    }
+
+将上述生成的字节数组输出到文件，反编译之后查看：
+
+
+
+
+    import demo.dynamicProxy.Subject;
+    import java.lang.reflect.InvocationHandler;
+    import java.lang.reflect.Method;
+    import java.lang.reflect.Proxy;
+    import java.lang.reflect.UndeclaredThrowableException;
+    
+    public final class $Proxy0 extends Proxy implements Subject {
+        private static Method m1;
+        private static Method m2;
+        private static Method m3;
+        private static Method m0;
+
+    public $Proxy0(InvocationHandler var1) throws  {
+        super(var1);
+    }
+
+    public final boolean equals(Object var1) throws  {
+        try {
+            return (Boolean)super.h.invoke(this, m1, new Object[]{var1});
+        } catch (RuntimeException | Error var3) {
+            throw var3;
+        } catch (Throwable var4) {
+            throw new UndeclaredThrowableException(var4);
+        }
+    }
+
+    public final String toString() throws  {
+        try {
+            return (String)super.h.invoke(this, m2, (Object[])null);
+        } catch (RuntimeException | Error var2) {
+            throw var2;
+        } catch (Throwable var3) {
+            throw new UndeclaredThrowableException(var3);
+        }
+    }
+    //生成接口的add方法实现，实际上还是调用InvocationHandler实例的invoke方法
+    public final void add() throws  {
+        try {
+            super.h.invoke(this, m3, (Object[])null);
+        } catch (RuntimeException | Error var2) {
+            throw var2;
+        } catch (Throwable var3) {
+            throw new UndeclaredThrowableException(var3);
+        }
+    }
+
+    public final int hashCode() throws  {
+        try {
+            return (Integer)super.h.invoke(this, m0, (Object[])null);
+        } catch (RuntimeException | Error var2) {
+            throw var2;
+        } catch (Throwable var3) {
+            throw new UndeclaredThrowableException(var3);
+        }
+    }
+    //静态代码块
+    static {
+        try {
+            m1 = Class.forName("java.lang.Object").getMethod("equals", Class.forName("java.lang.Object"));
+            m2 = Class.forName("java.lang.Object").getMethod("toString");
+            m3 = Class.forName("demo.dynamicProxy.Subject").getMethod("add");   //获取接口add方法
+            m0 = Class.forName("java.lang.Object").getMethod("hashCode");
+        } catch (NoSuchMethodException var2) {
+            throw new NoSuchMethodError(var2.getMessage());
+        } catch (ClassNotFoundException var3) {
+            throw new NoClassDefFoundError(var3.getMessage());
+        }
+    }
+    }
+
+动态代理有如下特性：
+
+ - 继承了`Proxy`类，实现了代理的接口，由于`java`不能多继承，这里已经继承了`Proxy`类，不能再继承其他类，所以`JDK`动态代理不支持对实现类的代理，**只支持接口的代理**，`jdk`动态代理也称为接口代理
+ - 生成的代理类会提供了一个使用`InvocationHandler`作为参数的构造方法
+ - 生成的静态代码块中会初始化三个方法：`equals/toString/hashCode`，并且代理类中还重写了这三个方法，重写方法只是简单的调用了`InvocationHandler`的`invoke`方法，因此该代理类实际上也可以代理这三个方法
+ - 代理类中对接口方法的实现实际上也就是调用`InvocationHandler`的`invoke`方法，在`invoke`方法中可以实现自己的逻辑，而调用代理类的`equals/toString/hashCode`同样会触发`invoke`方法
+
+再看看`MyBatis`中对`mapper`接口使用的动态代理实现，源码在`MapperProxy`中：
+
+    public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+    //这里会过滤掉代理类中重写的equals/toString/hashCode方法，避免执行后面的MapperMethod
+    if (Object.class.equals(method.getDeclaringClass())) {
+      try {
+        return method.invoke(this, args);
+      } catch (Throwable t) {
+        throw ExceptionUtil.unwrapThrowable(t);
+      }
+    }
+    final MapperMethod mapperMethod = cachedMapperMethod(method);
+    return mapperMethod.execute(sqlSession, args);
+      }
+
+ 
 ## 泛型 ##
 先来看一个错误：
 

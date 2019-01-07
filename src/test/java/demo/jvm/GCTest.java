@@ -31,4 +31,15 @@ public class GCTest {
         allocation3 = new byte[4 * _1MB];
 
     }
+
+    @Test
+    public void testStackOverflow() {
+        StackOverflowTest test = new StackOverflowTest();
+        try {
+            test.stackLeak();
+        } catch (Exception e) {
+            System.out.println("Stack length : " + test.getStackLength());
+            throw e;
+        }
+    }
 }

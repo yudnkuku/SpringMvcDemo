@@ -74,7 +74,6 @@
 ## 2.2 setting ##
 `MyBatis`参数设置，调整`MyBatis`的运行时行为，参考：[MyBatis设置][1]
 常用`setting`配置：
-
 |设置参数|描述|有效值|默认值|
 |:-:|:-:|:-:|:-:|
 |`cacheEnabled`|是否启用二级缓存，包括一级缓存和二级缓存|`true/false`|`true`|
@@ -488,11 +487,6 @@ sql元素可以作为可重用的SQL代码片段，包含在其他语句中
       </foreach>
     </select>
 
-`foreach`元素的功能非常强大，它允许你指定一个集合，声明可以在元素体内使用的集合项(`item`)和索引(`index`)变量，它也允许你指定开头与结尾的字符串
-以及在迭代结果之间放置分隔符。这个元素是很智能的，因此它不会偶然地附加多余的分隔符。
-你可以将任何可迭代的对象(如`List/Set`等)、`Map`对象或者数组对象传递给`foreach`作为集合参数。当使用迭代对象或者数组时，`index`是当前迭代的次数，
-`item`的值是本次迭代获取的元素。当使用`Map`对象(或者`Map.Entry`对象的集合)时，`index`是键，`item`是值
-
 ## 4.5 缓存 ##
 `MyBatis`中的缓存分为一级缓存(本地缓存)和二级缓存，一级缓存是在`SqlSession`层面进行缓存的，即同一个`SqlSession`，多次调用同一个`Mapper`的同一个方法同一个参数只会进行一次数据库查询，第一次查询会将结果缓存到本地缓存`localcache`中，以后如果做同样的查询那么直接从缓存中拿结果，而不去查数据库。
 设置二级缓存的方法也很简单：
@@ -535,7 +529,7 @@ sql元素可以作为可重用的SQL代码片段，包含在其他语句中
 项目中使用`MyBatis`首先要进行相关`bean`的配置，通常按顺序进行如下`bean`配置：
 
  - 数据源`DataSource`:配置数据源，属性字段包括`username`、`password`、`url`、`driverClassName`等
- - `SqlSessionFactoryBean`:提供`SqlSessionFactory`,属性字段包括`datasource`(即上面的数据源)、`configLocation配置文件位置，在配置文件中定义mapper.xml的路径，这些xml文件路径也可以在SqlSessionFactoryBean中配置mapperLocaotions字段`
+ - `SqlSessionFactoryBean`:提供`SqlSessionFactory`,属性字段包括`datasource`(即上面的数据源)、`configLocation`配置文件位置，在配置文件中定义`mapper.xml`的路径，这些`xml`文件路径也可以在`SqlSessionFactoryBean`中配置`mapperLocaotions`字段
  - `MapperScannerConfigurer`:配置属性包括`basePackage`(`dao`接口所在全路径)、`sqlSessionFactory`(上述`SqlSessionFactoryBean`)
  - `DataSourceTransactionManager`:事务管理`bean`，配置属性包括`datasource`(即上述数据源`bean`)
 
@@ -604,17 +598,24 @@ sql元素可以作为可重用的SQL代码片段，包含在其他语句中
 3、关于`mybatis`配置文件
 
  - `mybatis-config.xml`：`mybatis`配置文件，里面常见配置如下：
-
-
-    <configuration>
-        <settings>
-            <setting name="logimpl" value="STD_LOGGING"/> //控制台输出sql语句
-        <typeAliases>
-            <package name="..."/>   //定义包下所有类等价于其小写类名
-
  - `applicationContext-mybatis.xml`：`spring-mybatis`配置文件，通常定义了`datasource`、`sqlSessionFactoryBean`、`MapperScannerConfigurer`以及`TranscationManager`
  - 其他组织结构：`DAO接口`、`mapper`映射`xml`文件，注意可以在`MapperScannerConfigurer`里设置`mapperLocations`，`DAO`接口和`mapper xml`通过`mapper`里的`namespace`属性关联
 
+        <configuration>
+            <settings>
+                <setting name="cacheEnabled" value="true"/> //是否开启二级缓存，默认是true
+                <setting name="logimpl" value="STD_LOGGING"/> //控制台输出sql语句
+            </settings>
+            <typeAliases>
+                <package name="..."/>   //定义包下所有类等价于其小写类名
+            </typeAliases>
+            <mappers>
+                //定义mapper
+                <mapper/> 或者<package/>    //mapper定义mapper.xml的文件路径，包含且只能包含一个resource/url/class属性，package定义mapper.xml所在包，前者会加载对应属性声明的mapper.xml，后者会加载package name属性下所有的mapper.xml
+            </mappers>
+        </configuration>
+
+ 
 
 ## MyBatis面试相关 ##
 1、`MyBatis`是什么
@@ -622,7 +623,8 @@ sql元素可以作为可重用的SQL代码片段，包含在其他语句中
 `mybatis`通过`xml`或者注解的方式，将要执行的各种`sql`语句配置起来，并通过`Java`对象和`statement`中的`sql`语句映射生成最终的`sql`语句，最后由`mybatis`框架执行`sql`语句，并将结果映射成`Java`对象返回
 
 2、`MyBatis`工作原理
-`mybatis`通过配置文件创建`sqlsessionFactory`，`sqlsessionFactory`根据配置文件，配置文件来源于两个方面:一个是`xml`，一个是`Java`中的注解，获取`sqlSession`。**`SQLSession`包含了执行`sql`语句的所有方法**，可以通过`SQLSession`直接运行映射的`sql`语句，完成对数据的增删改查和事务的提交工作，用完之后关闭`SQLSession`。 
+`mybatis`通过配置文件创建`sqlsessionFactory`，`sqlsessionFactory`根据配置文件，配置文件来源于两个方面:一个是`xml`，一个是`Java`中的注解，获取`sqlSession`。**`SqlSession`包含了执行`sql`语句的所有方法**，可以通过`SqlSession`直接运行映射的`sql`语句，完成对数据的增删改查(`select/insert/update/delete`)和事务的提交(`commit`)工作，用完之后关闭`SqlSession`。 
+
 `MyBatis`是基于`jdk`动态代理的(基于接口，接口就是`DAO`接口)，因此在执行`DAO`接口的方法时，会触发代理类`MapperProxy`的方法调用(该代理类实现了`InvocationHandler`接口，这个接口在`jdk`动态代理中常用，`Proxy.newProxtInstance(classLoader, Class[]{}, InvocationHandler)`用于构造代理对象)，由于动态代理，会继续调用`InvocationHandler`实例的`invoke()`方法，查看源码，`invoke()`方法内部实际上调用了`sqlSession`实例的方法(看来最终还是回到了`sql`语句的执行)，执行对应的`sql`语句，因此说白了就是调用`DAO`方法最后还是执行了对应的`sql`语句(具体源码可以查看`MapperProxy`，参考`mybatis`源码解析)，可以看出`MyBatis`框架同样只声明了`DAO`接口，没有具体的实现类，这和`Spring Data JPA`有点类似，在项目实际运行时，`MyBatis`框架实际上利用了`JDK`动态代理策略将`DAO`接口的方法调用交给代理类执行，最后落脚到`sql`语句的执行，实现数据库相关的操作。
 
 3、工作流程

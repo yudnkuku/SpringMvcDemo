@@ -1,7 +1,11 @@
 package demo.dynamicProxy;
 
 import org.junit.Test;
+import sun.misc.ProxyGenerator;
 
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
@@ -39,6 +43,26 @@ public class DynamicProxtTest {
             Class[] interfaces = target.getClass().getInterfaces();
             Object proxy = Proxy.newProxyInstance(cl, interfaces, this);
             return proxy;
+        }
+    }
+
+    @Test
+    public void testProxy() {
+        String path = "D:/$Proxy0.class";
+        byte[] proxyClassFile = ProxyGenerator.generateProxyClass("$Proxy0", SubjectImpl.class.getInterfaces());
+        FileOutputStream fos = null;
+        try {
+            fos = new FileOutputStream(path);
+            fos.write(proxyClassFile);
+            fos.flush();
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            try {
+                fos.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
         }
     }
 }
