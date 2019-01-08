@@ -13,8 +13,7 @@ import spring.entity.User;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.validation.Valid;
-import java.util.Collection;
-import java.util.Date;
+import java.util.*;
 
 @Controller
 @RequestMapping("/demo")
@@ -104,4 +103,11 @@ public class HelloController {
         return name;
     }
 
+    //构造一个返回List的构造器
+    @RequestMapping("list")
+    public List<String> testList(Map model) {
+        List<String> result = new ArrayList<>();
+        result.add("yuding");
+        return result;
+    }
 }

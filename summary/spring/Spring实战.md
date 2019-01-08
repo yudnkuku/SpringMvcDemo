@@ -16,14 +16,23 @@
 
 ## Bean的生命周期 ##
 1、对`bean`进行实例化
+
 2、将值和`bean`的引用注入到`bean`对应的属性中
+
 3、如果`bean`实现了`BeanNameAware`接口，`Spring`将`bean`的`ID`传递给`setBeanName()`方法
+
 4、如果`bean`实现了`BeanFactoryAware`接口，`Spring`调用`setBeanFactory()`方法将`BeanFactory`实例传入
+
 5、如果`bean`实现了`ApplicationContextAware`接口，`Spring`将调用`setApplicationContext()`方法，将`ApplicationContext`实例传入
+
 6、如果实现了`BeanPostProcessor`接口，将调用其`postProcessBeforeInitialization()`方法
+
 7、如果实现了`InitializingBean`接口，将调用`afterPropertiesSet()`方法，如果`bean`内部声明了`init-method`初始化方法，那么该方法也会被调用
+
 8、如果实现了`BeanPostProcessor`接口，将调用其`postProcessorAfterInitialization()`方法
+
 9、此时`bean`已经初始化完成，会被注册到上下文中等待使用直到最后被销毁
+
 10、如果实现了`DisposableBean`接口，将会调用`destroy()`方法，或者声明了`destroy-method`，该方法也会被调用
 
 ## EP2 装配Bean ##
@@ -64,6 +73,7 @@
     </bean>
 
 3、`util`命名空间，用来声明集合类型的`bean`
+
 |元素|描述|
 |:-:|:-:|
 |`<util:constant>`|引用某个类型的`public static`域，将其暴露为`bean`|
@@ -76,6 +86,7 @@
 ## EP3 高级装配 ##
 ## 环境和Profile ##
 **Java Config配置profile**
+
 `@Profile`注解可以指定`bean`在哪些`profile`下是有效的，该注解可以注解到方法或者类上
 
 注解在类上，标明该类中所有的`bean`都在该`profile`下才有效，例如：
@@ -319,7 +330,7 @@
             jp.proceed();
             System.out.println("after method");
         } catch (Throwable e) {
-            、、
+            ...
         }
     }
 
@@ -372,8 +383,9 @@
     }
     
 ## 两个上下文之间的故事 ##
-    当`DispatcherServlet`启动的时候，它会创建`Spring`应用上下文，并加载配置文件或配置类中的`bean`，但在`Spring Web`应用中，通常还会存在另外一个应用上下文，这个上下文是由`ContextLoaderListener`创建的。我们希望`DispatcherServlet`加载包含`WEB`组件的`bean`，如控制器、视图解析器以及处理器映射，而`ContextLoaderListener`要加载应用中的其他`bean`，这些`bean`通常是驱动应用后端的中间层和数据层组件。
-    事实上，`AbstractAnnotationConfigDispatcherServletInitializer`会同时创建`DispatcherServlet`和`ContextLoaderListener`。
+
+当`DispatcherServlet`启动的时候，它会创建`Spring`应用上下文，并加载配置文件或配置类中的`bean`，但在`Spring Web`应用中，通常还会存在另外一个应用上下文，这个上下文是由`ContextLoaderListener`创建的。我们希望`DispatcherServlet`加载包含`WEB`组件的`bean`，如**控制器、视图解析器以及处理器映射**，而`ContextLoaderListener`要加载应用中的其他`bean`，这些`bean`通常是**驱动应用后端的中间层和数据层组件**。
+事实上，`AbstractAnnotationConfigDispatcherServletInitializer`会同时创建`DispatcherServlet`和`ContextLoaderListener`。
     
 ## JAVA配置WebConfig ##
 如下配置，使用`@EnableWebMvc`注解：
