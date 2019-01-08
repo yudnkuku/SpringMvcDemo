@@ -609,7 +609,93 @@
     return mapperMethod.execute(sqlSession, args);
       }
 
- 
+再举一个例子：
+(1)静态代理
+加入我们有一个字体提供类，有多种实现(从磁盘、网络、系统)
+
+    public interface FontProvider {
+        Font getFont(String name);
+    }
+    
+    public abstract class ProviderFactory {
+        public static FontProvider getFontProvider() {
+            return new FontProviderFromDisk();
+        }
+    }
+
+现在我们希望给它加一个缓存功能，可以用静态代理来实现：
+
+    public class CachedFontProvider implements FontProvider {
+        private FontProvider fontProvider;
+        private Map<String, Font> cached;
+        
+        public CachedFontProvider(FontProvider fontProvider) {
+            this.fontProvider = fontProvider;
+        }
+        
+        public Font getFont(String name) {
+            Font font = cached.get(name);
+            if(font == null) {
+                font = fontProvider.getFont(name);
+                cached.put(name, font);
+            }
+            return font;
+        }
+    }
+
+对工厂类进行相应修改，代码使用出不必进行任何修改，这也是面向接口编程以及工厂模式的一个好处
+
+    public abstract class ProviderFactory {
+        public static FontProvider getFontProvider() {
+            return new CachedFontProvider(new FontProviderFormDisk());
+        }
+    }
+
+当然，我们直接修改`FontProviderFromDisk`类也可以实现目的，但是我们还有`FontProviderFromNet`、`FontProviderFromSystem`等多种实现类，修改太过繁琐且易出错，况且将来还可能添加日志、权限检查、异常处理等功能，显然用代理类更好一点。
+
+考虑到以上情况，有多个提供类，每个类都有`getXxx(String name)`方法，每个类都要加入缓存功能，就可以考虑使用动态代理
+
+    public abstract class ProviderFactory {
+        public static FontProvider getFontProvider() {...}
+        public static ImageProvider getFontProvider() {...}
+        public static MusicProvider getMusicProvider() {...}
+    }
+
+使用动态代理如下：
+    
+    //实现InvocationHandler接口
+    public class CachedProviderHandler implements InvocationHandler {
+        private Map<String, Object> cached = new HashMap<>();
+        private Object target;
+        
+        public CachedProviderHandler(Object target) {
+            this.target = target;
+        }
+        
+        public Object invoke(Object proxy, Method method, Object[] args) throws Throwable{
+            Type[] types = method.getParamterTypes();
+            if(method.getName().matches("get.+") && types.length == 1 && (types[0] == String.class)) {
+                String key = (String) args[0];
+                Object value = cached.get(key);
+                if(value == null) {
+                    value = method.invoke(target, args);
+                    cached.put(key, value);
+                }
+                return value;
+            }
+            return method.invoke(target, args);
+        }
+    }
+
+工厂类：
+
+    public abstract ProviderFactory {
+        public static FontProvider getFontProvider() {
+            Class<FontProvider> targetClass = FontProvider.class;
+            return (FontProvider) Proxy.newProxyInstance(targetClass.getClassLoader(), new Class[]{targetClass}), new CachedProviderHandler(new FontProviderFromDisk()));
+        }
+    }
+
 ## 泛型 ##
 先来看一个错误：
 

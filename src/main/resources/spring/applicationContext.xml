@@ -7,7 +7,7 @@
        xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd
                             http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context.xsd
                             http://www.springframework.org/schema/tx http://www.springframework.org/schema/tx/spring-tx.xsd
-                            http://www.springframework.org/schema/tx http://www.springframework.org/schema/aop/spring-aop.xsd">
+                            http://www.springframework.org/schema/aop http://www.springframework.org/schema/aop/spring-aop.xsd">
 
     <bean id="lazyBean" class="spring.bean.LazyBean" init-method="init" lazy-init="default" scope="prototype"/>
     <bean id="defautlBean" class="spring.bean.PreInstantiationBean">
@@ -61,4 +61,11 @@
 
     <bean id="beanFactoryMethod" factory-bean="clientService" factory-method="createInstance"/>
 
+    <bean id="prototypeBean" class="spring.bean.PrototypeBean" scope="prototype">
+        <aop:scoped-proxy/>
+    </bean>
+
+    <bean id="singletonBean" class="spring.bean.SingletonBean" scope="singleton">
+        <property name="prototypeBean" ref="prototypeBean"/>
+    </bean>
 </beans>

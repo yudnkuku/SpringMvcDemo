@@ -115,86 +115,90 @@
     public class FormattingConversionService extends GenericConversionService
 		implements FormatterRegistry, EmbeddedValueResolverAware {
 		    
-		    //注册转换器Converter
-		    public void addFormatterForFieldAnnotation(AnnotationFormatterFactory<? extends Annotation> annotationFormatterFactory) {
-		Class<? extends Annotation> annotationType = getAnnotationType(annotationFormatterFactory);
-		if (this.embeddedValueResolver != null && annotationFormatterFactory instanceof EmbeddedValueResolverAware) {
-			((EmbeddedValueResolverAware) annotationFormatterFactory).setEmbeddedValueResolver(this.embeddedValueResolver);
-		}
-		Set<Class<?>> fieldTypes = annotationFormatterFactory.getFieldTypes();
-		for (Class<?> fieldType : fieldTypes) {
-		    //对每个注解参数构建AnnotationPrinterConverter和AnnotationParserConverter，并注册到GenericConversionService中的converters中保存
-			addConverter(new AnnotationPrinterConverter(annotationType, annotationFormatterFactory, fieldType));
-			addConverter(new AnnotationParserConverter(annotationType, annotationFormatterFactory, fieldType));
-		}
+	    //注册转换器Converter
+        public void addFormatterForFieldAnnotation(AnnotationFormatterFactory<? extends Annotation> annotationFormatterFactory) {
+    		Class<? extends Annotation> annotationType = getAnnotationType(annotationFormatterFactory);
+    		if (this.embeddedValueResolver != null && annotationFormatterFactory instanceof EmbeddedValueResolverAware) {
+    			((EmbeddedValueResolverAware) annotationFormatterFactory).setEmbeddedValueResolver(this.embeddedValueResolver);
+    		}
+    		Set<Class<?>> fieldTypes = annotationFormatterFactory.getFieldTypes();
+    		for (Class<?> fieldType : fieldTypes) {
+    		    //对每个注解参数构建AnnotationPrinterConverter和AnnotationParserConverter，并注册到GenericConversionService中的converters中保存
+    			addConverter(new AnnotationPrinterConverter(annotationType, annotationFormatterFactory, fieldType));
+    			addConverter(new AnnotationParserConverter(annotationType, annotationFormatterFactory, fieldType));
+    		}
 	}
 		    
 		    
-		    //内部类，将注解类转换为String
-		    private class AnnotationParserConverter implements ConditionalGenericConverter {
+	    //内部类，将注解类转换为String
+		private class AnnotationParserConverter implements ConditionalGenericConverter {
 		    
-    		    private final Class<? extends Annotation> annotationType;
+		    private final Class<? extends Annotation> annotationType;
+
+    		@SuppressWarnings("rawtypes")
+    		private final AnnotationFormatterFactory annotationFormatterFactory;
     
-        		@SuppressWarnings("rawtypes")
-        		private final AnnotationFormatterFactory annotationFormatterFactory;
-        
-        		private final Class<?> fieldType;
-        		
-    		    //实现的convert方法
-    		    public Object convert(@Nullable Object source, TypeDescriptor sourceType, TypeDescriptor targetType) {
-        			Annotation ann = targetType.getAnnotation(this.annotationType);
-        			if (ann == null) {
-        				throw new IllegalStateException(
-        						"Expected [" + this.annotationType.getName() + "] to be present on " + targetType);
-        			}
-        			AnnotationConverterKey converterKey = new AnnotationConverterKey(ann, targetType.getObjectType());
-        			//从缓存中获取converter
-        			GenericConverter converter = cachedParsers.get(converterKey);
-        			if (converter == null) {
-        			    //从annotationFormatterFactory获取Parser
-        				Parser<?> parser = this.annotationFormatterFactory.getParser(
-        						converterKey.getAnnotation(), converterKey.getFieldType());
-        				//构建ParserConverter实例进行类型转换，注意构造时传入了外部类的引用
-        				converter = new ParserConverter(this.fieldType, parser, FormattingConversionService.this);
-        				cachedParsers.put(converterKey, converter);
-        			}
-        			//转换
-        			return converter.convert(source, sourceType, targetType);
-        		}
-		    }
-		    //内部类，将String转换为注解类
-		    private class AnnotationPrinterConverter implements ConditionalGenericConverter {}
-		    //内部类
-		    private class ParserConverter implements ConditionalGenericConverter {
+    		private final Class<?> fieldType;
+    		
+		    //实现的convert方法
+		    public Object convert(@Nullable Object source, TypeDescriptor sourceType, TypeDescriptor targetType) {
+    			Annotation ann = targetType.getAnnotation(this.annotationType);
+    			if (ann == null) {
+    				throw new IllegalStateException(
+    						"Expected [" + this.annotationType.getName() + "] to be present on " + targetType);
+    			}
+    			AnnotationConverterKey converterKey = new AnnotationConverterKey(ann, targetType.getObjectType());
+    			//从缓存中获取converter
+    			GenericConverter converter = cachedParsers.get(converterKey);
+    			if (converter == null) {
+    			    //从annotationFormatterFactory获取Parser
+    				Parser<?> parser = this.annotationFormatterFactory.getParser(
+    						converterKey.getAnnotation(), converterKey.getFieldType());
+    				//构建ParserConverter实例进行类型转换，注意构造时传入了外部类的引用
+    				converter = new ParserConverter(this.fieldType, parser, FormattingConversionService.this);
+    				cachedParsers.put(converterKey, converter);
+    			}
+    		    //转换
+    		    return converter.convert(source, sourceType, targetType);
+    		}
+	    }
+	    
+		//内部类，将String转换为注解类
+		private class AnnotationPrinterConverter implements ConditionalGenericConverter {}
+		
+		//内部类
+		private class ParserConverter implements ConditionalGenericConverter {
 		    
-		            //转换方法
-		            public Object convert(@Nullable Object source, TypeDescriptor sourceType, TypeDescriptor targetType) {
-			String text = (String) source;
-			if (!StringUtils.hasText(text)) {
-				return null;
-			}
-			Object result;
-			try {
-			    //调用内部的parser实例进行类型转换
-				result = this.parser.parse(text, LocaleContextHolder.getLocale());
-			}
-			catch (IllegalArgumentException ex) {
-				throw ex;
-			}
-			catch (Throwable ex) {
-				throw new IllegalArgumentException("Parse attempt failed for value [" + text + "]", ex);
-			}
-			TypeDescriptor resultType = TypeDescriptor.valueOf(result.getClass());
-			if (!resultType.isAssignableTo(targetType)) {
-			    //如果转换结果类型不是targetType类型的父类，接着使用内部的conversionService进行转换，这个service是由构造函数传进来的，即再一次调用了外部类的convert方法
-				result = this.conversionService.convert(result, resultType, targetType);
-			}
-			return result;
-		}
-		    }
-		    //内部类
-		    private class PrinterConverter implements ConditionalGenericConverter {}
-		}
+		    //转换方法
+		    public Object convert(@Nullable Object source, TypeDescriptor sourceType, TypeDescriptor targetType) {
+    			String text = (String) source;
+    			if (!StringUtils.hasText(text)) {
+    				return null;
+    			}
+    			Object result;
+    			try {
+    			    //调用内部的parser实例进行类型转换
+    				result = this.parser.parse(text, LocaleContextHolder.getLocale());
+    			}
+    			catch (IllegalArgumentException ex) {
+    				throw ex;
+    			}
+    			catch (Throwable ex) {
+    				throw new IllegalArgumentException("Parse attempt failed for value [" + text + "]", ex);
+    			}
+    			TypeDescriptor resultType = TypeDescriptor.valueOf(result.getClass());
+    			if (!resultType.isAssignableTo(targetType)) {
+    			    //如果转换结果类型不是targetType类型的父类，接着使用内部的conversionService进行转换，这个service是由构造函数传进来的，即再一次调用了外部类的convert方法
+    				result = this.conversionService.convert(result, resultType, targetType);
+    			}
+    			return result;
+    		}
+    	}
+		    
+		//内部类
+		private class PrinterConverter implements ConditionalGenericConverter {}
+		
+	}
 
 如何用`xml`方式注册`Converter`和`Formatter`：
 
