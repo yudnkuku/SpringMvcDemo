@@ -143,7 +143,6 @@
 假如`my.placeholder`已经被注册到属性源中，例如系统属性或者环境变量，那么该占位符就会被解析成对应的值，否则`"default/path"`就会被作为默认值使用，如果没有指定默认值，那么会抛出`IllegalArgumentException`异常
 ## 1.4 bean作用域 ##
 `bean`的作用域：
-
 |作用域|描述|
 |:--:|:--:|
 |`singleton`|(默认)表明对于每个`Spring IoC`容器，一个`bean`定义对应一个对象实例|
@@ -152,7 +151,6 @@
 |`session`|每个`HTTP`会话对应对象实例，仅在`web`环境下有效|
 |`application`|每个`ServletContext`下对应对象实例，仅在`web`环境下有效|
 |`websocket`|每个`WebSocket`下对应对象实例，仅在`web`环境下有效|
-
 `request`、`session`、`application`、`websocket`四种作用域类型仅在`web`环境中才有效，例如`XmlWebApplicationContext`，如果在普通容器中使用这些作用域，会爆出`IllegalStateException`异常。
 当高级别作用域`bean`注入到低级别作用域`bean`时，会出现`bean`的作用域协同问题，例如将`session`作用域的`bean`注入到`singleton`作用域的`bean`中
 

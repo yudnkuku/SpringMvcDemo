@@ -3,6 +3,176 @@
 标签（空格分隔）： 源码解析
 
 ---
+## DispatcherServlet处理请求源码 ##
+分析`DispatcherServlet`处理请求的源码有助于我们理解请求的处理过程以及其中参与的一些接口功能，源码如下：
+
+    protected void doDispatch(HttpServletRequest request, HttpServletResponse response) throws Exception {
+		HttpServletRequest processedRequest = request;
+		//HandlerExecutionChain实例
+		HandlerExecutionChain mappedHandler = null;
+		boolean multipartRequestParsed = false;
+
+		WebAsyncManager asyncManager = WebAsyncUtils.getAsyncManager(request);
+
+		try {
+			ModelAndView mv = null;
+			Exception dispatchException = null;
+
+			try {
+				processedRequest = checkMultipart(request);
+				multipartRequestParsed = (processedRequest != request);
+
+				// Determine handler for the current request.
+				//遍历HandlerMapping，获取HandlerExecutorChain实例
+				mappedHandler = getHandler(processedRequest);
+				if (mappedHandler == null) {
+					noHandlerFound(processedRequest, response);
+					return;
+				}
+
+				// Determine handler adapter for the current request.
+				//根据mappedHandler的handler获取能够支持handler的HandlerAdapter实例
+				HandlerAdapter ha = getHandlerAdapter(mappedHandler.getHandler());
+
+				// Process last-modified header, if supported by the handler.
+				String method = request.getMethod();
+				boolean isGet = "GET".equals(method);
+				if (isGet || "HEAD".equals(method)) {
+					long lastModified = ha.getLastModified(request, mappedHandler.getHandler());
+					if (logger.isDebugEnabled()) {
+						logger.debug("Last-Modified value for [" + getRequestUri(request) + "] is: " + lastModified);
+					}
+					if (new ServletWebRequest(request, response).checkNotModified(lastModified) && isGet) {
+						return;
+					}
+				}
+                //执行mapperdHandler执行链的applyPreHandler方法，如果返回false直接返回
+				if (!mappedHandler.applyPreHandle(processedRequest, response)) {
+					return;
+				}
+
+				// Actually invoke the handler.
+				//调用HandlerAdapter的handle方法处理实际请求
+				mv = ha.handle(processedRequest, response, mappedHandler.getHandler());
+
+				if (asyncManager.isConcurrentHandlingStarted()) {
+					return;
+				}
+
+				applyDefaultViewName(processedRequest, mv);
+				mappedHandler.applyPostHandle(processedRequest, response, mv);
+			}
+			catch (Exception ex) {
+				dispatchException = ex;
+			}
+			catch (Throwable err) {
+				// As of 4.3, we're processing Errors thrown from handler methods as well,
+				// making them available for @ExceptionHandler methods and other scenarios.
+				dispatchException = new NestedServletException("Handler dispatch failed", err);
+			}
+			processDispatchResult(processedRequest, response, mappedHandler, mv, dispatchException);
+		}
+		catch (Exception ex) {
+			triggerAfterCompletion(processedRequest, response, mappedHandler, ex);
+		}
+		catch (Throwable err) {
+			triggerAfterCompletion(processedRequest, response, mappedHandler,
+					new NestedServletException("Handler processing failed", err));
+		}
+		finally {
+			if (asyncManager.isConcurrentHandlingStarted()) {
+				// Instead of postHandle and afterCompletion
+				if (mappedHandler != null) {
+					mappedHandler.applyAfterConcurrentHandlingStarted(processedRequest, response);
+				}
+			}
+			else {
+				// Clean up any resources used by a multipart request.
+				if (multipartRequestParsed) {
+					cleanupMultipart(processedRequest);
+				}
+			}
+		}
+	}
+
+按照出现顺序介绍一下相关接口：
+1、`HandlerExecutionChain`：
+
+    //定义了多个成员
+    //请求处理器对象
+    private final Object handler;
+    //HandlerInterceptor数组
+    private HandlerInterceptor[] interceptors;
+    
+    //applyPreHandler方法，在调用HandlerAdapter.handle方法之前执行，会遍历interceptors数组，调用其preHandler方法，如果返回false，那么整个方法返回false，否则返回true
+    boolean applyPreHandle(HttpServletRequest request, HttpServletResponse response) throws Exception {
+        HandlerInterceptor[] interceptors = this.getInterceptors();
+        if (!ObjectUtils.isEmpty(interceptors)) {
+            for(int i = 0; i < interceptors.length; this.interceptorIndex = i++) {
+                HandlerInterceptor interceptor = interceptors[i];
+                if (!interceptor.preHandle(request, response, this.handler)) {
+                    this.triggerAfterCompletion(request, response, (Exception)null);
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+    
+2、`HandlerMapping`接口:
+    
+    //HandlerMapping接口只声明了一个方法，获取请求的HandlerExecutionChain实例
+    HandlerExecutionChain getHandler(HttpServletRequest request) throws Exception;
+
+`DispatcherServlet`中获取`HandlerMapping`的方法：
+    
+    mappedHandler = getHandler(processedRequest);
+    
+    //遍历所有的handlerMappings，抵用hm.getHandler，如果返回非空则方法返回
+    protected HandlerExecutionChain getHandler(HttpServletRequest request) throws Exception {
+		if (this.handlerMappings != null) {
+			for (HandlerMapping hm : this.handlerMappings) {
+				if (logger.isTraceEnabled()) {
+					logger.trace(
+							"Testing handler map [" + hm + "] in DispatcherServlet with name '" + getServletName() + "'");
+				}
+				HandlerExecutionChain handler = hm.getHandler(request);
+				if (handler != null) {
+					return handler;
+				}
+			}
+		}
+		return null;
+	}
+
+3、`HandlerAdapter`接口：
+
+    //HandlerAdapter接口声明了3个方法
+    //此HandlerMapper是否支持handler
+    boolean supports(Object handler);
+    
+    //处理请求，返回ModleAndView
+    ModelAndView handle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception;
+    
+    long getLastModified(HttpServletRequest request, Object handler);
+    
+`HandlerAdapter`有很多实现，在`WebMvcConfigurationSupport`中注册了很多其实现`bean`，例如，具体可以查看`WebMvcConfigurationSupport`源码：
+
+    RequestMappingHandlerAdapter
+    HttpRequestHandlerAdapter
+    SimpleControllerHandlerAdapter
+
+上面`DispatcherServlet`处理请求的逻辑大概如下：
+
+    (1)mappedHandler = getHandler()
+    遍历所有的HandlerMapping，调用其getHandler方法返回非null HandlerExecutionChain实例mappedHandler
+    (2)ha = getHandlerAdapter(mappedHandler.getHandler())
+    获取mappedHandler相关的handler，调用getHandlerAdapter方法，获取支持该handler的HandlerAdapter
+    (3)mappedHandler.applyPreHandle()
+    调用HandlerExecutionChain市里的applyPreHandler方法，实际上会遍历该执行链内部的interceptor数组，调用interceptor.preHandle()方法，如果有一个interceptor返回false，apply方法返回false，否则返回true，如果apply返回false，DispatcherServlet直接返回不进行后面的处理，否则继续
+    (4)ha.handler()
+    处理实际请求
 
 ## 类型转换相关源码 ##
 我们在进行请求映射时，请求字符串到处理函数参数的转换通常由框架内置的转换服务实现
@@ -127,7 +297,7 @@
     			addConverter(new AnnotationPrinterConverter(annotationType, annotationFormatterFactory, fieldType));
     			addConverter(new AnnotationParserConverter(annotationType, annotationFormatterFactory, fieldType));
     		}
-	}
+	    }
 		    
 		    
 	    //内部类，将注解类转换为String
