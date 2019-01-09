@@ -163,7 +163,7 @@
     </bean>
 
 由于`userManager`是`singleton`的，每个容器只会实例化一个实例，因此它的依赖`userPreferences`也只会注入一次，这意味着`userPreferences`的作用域成了`singleton`，这显然不是我们想要的结果。
-这个时候需要注入代理类，这个代理类实际上就是个`UserPreferences`实例（和`UserPreferences`拥有同样的公共接口），容器将这个代理对象注入到`userManager`中，但`userManager`并不知道注入的是代理类，因此，在`UserManager`每次调用注入的`UserPreferences`的方法时，实际上调用的是代理对象上的方法，代理对象从`HTTP Session`中获取真正的`UserPreferences`对象，并将方法调用代理给真正的`UserPreferences`对象。
+这个时候需要注入代理类，这个代理类实际上就是个`UserPreferences`实例（和`UserPreferences`拥有同样的公共接口），容器将这个代理对象注入到`userManager`中，但`userManager`并不知道注入的是代理类，因此，**在`UserManager`每次调用注入的`UserPreferences`的方法时，实际上调用的是代理对象上的方法，代理对象从`HTTP Session`中获取真正的`UserPreferences`对象，并将方法调用代理给真正的`UserPreferences`对象**。
 
     
 
@@ -219,8 +219,9 @@
 `Spring IoC`容器可以通过插入某些特殊的集成接口进行拓展
 ## 1.6.1 使用BeanPostProcessor定制Bean ##
 `BeanPostProcessor`定义了两个回调函数，通过实现这些回调函数可以提供自己的初始化逻辑、依赖解析逻辑等。
-`ApplicationContext`回自动检测定义在配置元数据中并实现了`BeanPostProcessor`接口的`bean`，并将它们注册成`post-processors`，以便于能在`bean`已创建立即调用回调函数，`Bean post-processor`就像其他`bean`一样可以被部署到容器中。
+`ApplicationContext`会自动检测定义在配置元数据中并实现了`BeanPostProcessor`接口的`bean`，并将它们注册成`post-processors`，以便于能在`bean`一创建立即调用回调函数，`BeanPostProcessor`就像其他`bean`一样可以被部署到容器中。
 当在配置类中使用`@Bean`注解的工厂方法声明一个`BeanPostProcessor`时，返回类型一定是`BeanPostProcessor`本身或者实现类，否则无法被`ApplicationContext`自动检测到，因为`BeanPostProcessor`需要更早被初始化以便用于其他`bean`的初始化过程。
+
 `Note`:
 尽管推荐注册`BeanPostProcessor`的方式是通过`ApplicationContext`的自动探测，但我们仍可以通过`ConfigurableBeanFactory`的`addPostProcessor`方法来完成注册，这对于在注册之前计算条件逻辑十分有效，或者跨上下文环境复制`bean post`处理器，通过此种方式注册的`bean post`处理器的执行顺序和其注册顺序相关，并且均在自动探测的`bena post`处理器之前执行
 `BeanPostProcessor`源码：
@@ -232,12 +233,14 @@
 
 ## 1.6.2 使用BeanFactoryPostProcessor定制配置元数据 ##
 `Spring IoC`容器允许`BeanFactoryPostProcessor`操作`bean`的配置元数据。
-当`bean factory post-processor`在`ApplicationContext`内部声明时，其会被自动执行，目的是为了将改变应用到定义了容器的配置元数据上，`Spring`包含了一些列预定义的`bean factory post-processor`，例如`ProperOverrideConfiguer`和`PorpertyPlaceholderConfigurer`，同时也可以自定义`BeanFactoryPostProcessor`
+当`bean factory post-processor`在`ApplicationContext`内部声明时，其会被自动执行，目的是为了将改变应用到定义了容器的配置元数据上，`Spring`包含了一些列预定义的`bean factory post-processor`，例如`PropertyOverrideConfiguer`和`PorpertyPlaceholderConfigurer`，同时也可以自定义`BeanFactoryPostProcessor`
 `ApplicationContext`会自动检测实现了`BeanFactoryPostProcessor`的`bean`，并将其部署到容器内部
+
 **使用PropertyPlaceholderConfigurer**
+
 `Note`：
-如果你想改变实际的`bean`实例(通过配置元数据创建的对象)，应该使用`BeanPostProcessor`，而`BeanFactoryPostProcessor`则作用于容器中的`bean`定义，`Spring`包含了一系列预定义的`bean factory post-processor`，例如`PropererrideConfigurer`和`PropertyPlaceholderConfiguer`
-使用`PropertyPlaceholderConfiguer`从`Properties`格式化的文件中导入第三方属性值
+如果你想改变实际的`bean`实例(通过配置元数据创建的对象)，应该使用`BeanPostProcessor`，而`BeanFactoryPostProcessor`则作用于容器中的`bean`定义，`Spring`包含了一系列预定义的`bean factory post-processor`，例如`PropertyoverrideConfigurer`和`PropertyPlaceholderConfigurer`
+使用`PropertyPlaceholderConfigurer`从`Properties`格式化的文件中导入第三方属性值
 
 
     <bean class="org.springframework.beans.factory.config.PropertyPlaceholderConfigurer">
@@ -305,6 +308,7 @@
     }
 
 **使用@Primary控制@Autowired细粒度**
+
 `@Autowired`是依据类型自动导入，会导致多个候选`bean`，通常需要额外的控制，其中一种方式就是注解`@Primary`。
 `配置类`：
 
@@ -321,10 +325,8 @@
         // ...
     }
 
-`@Autowired`:
-
     public class MovieRecommender {
-    
+        //优先注入firstMovieCatalog
         @Autowired
         private MovieCatalog movieCatalog;
     
@@ -332,6 +334,7 @@
     }
 
 **使用@Qualifier控制@Autowired细粒度**
+
 使用`@Qualifier("name")`即可筛选符合`name`的`bean`。
 
     public class MovieRecommender {
@@ -416,6 +419,7 @@
 ## 1.9.3 使用过滤器自定义扫描 ##
 定义注解`@ComponentScan`中的`includeFilter`和`excludeFilter`来包含/排除某些特定的类
 `Filter Types`列表：
+
 |`Filter Type`|例子|目标|
 |:-:|:-:|:-:|
 |`FilterType.ANNOTATION`(默认)|`@Annotation`|含有该注解的组件|
@@ -423,6 +427,7 @@
 |`FilterType.ASPECT`|||
 |`FilterType.REGEX`|正则表达式|符合正则表达式的组件类名|
 |`FilterType.CUSTOM`|自定义|实现了`TypeFilter`接口的类|
+
 如下，表示忽略所有`@Repository`注解类，使用`stub repository`。
 
     @Configuration
@@ -516,12 +521,15 @@
             return new TransferServiceImpl();
         }
     }
+    
 **接受生命周期回调函数**
+
 任何注解`@Bean`的类都支持常规的回调函数，并且可以使用`@PostConstruct`和`@PreDestroy`注解
 也支持常规的`Spring`生命周期回调函数，如果一个`bean`实现了`InitializingBean`、`DisposableBean`或者`Lifecycle`，它们对应的回调方法也会被容器调用。
 一些标准的`*Aware`接口，例如`BeanNameAware`、`BeanFactoryAware`等也支持。
 
 **指定bean作用域**
+
 1、使用`@Scope`注解
 
     @Configuration
@@ -609,6 +617,7 @@
 `BeanFactory`提供了`Spring IoC`的基础函数功能，但是仅能直接用于和第三方框架进行整合，`BeanFactory`和相关的接口，例如`BeanFactoryAware`、`InitializingBean`、`DisposableBean`由于需要与大量整合`Spring`的第三方框架进行后向兼容依然存在于`Spring`体系中。
 ## 1.11.1 BeanFactory或者ApplicationContext ##
 由于`ApplicationContext`包含了`BeanFactory`的所有功能，因此推荐使用`ApplicationContext`，除了一些诸如运行在资源限制设备上的嵌入式应用，这些应用中一些`kb`的消耗可能有很大影响，对于大多数企业应用和系统，`ApplicationContext`是当之无愧的首选，`Spring`使用了大量的`BeanPostProcessor`拓展点(使能代理)，如果你是用普通的`BeanFactory`，诸如事务和`AOP`均不会起作用。
+
 |特性|`BeanFactory`|`ApplicationContext`|
 |:-:|:-:|:-:|
 |`bean`的初始化和装配|`yes`|`yes`|
@@ -616,6 +625,7 @@
 |`BeanFactoryPostProcessor`自动注册|`no`|`yesy`|
 |`MessageSource`访问|`no`|`yes`|
 |`ApplicationEvent`发布|`no`|`yes`|
+
 使用`BeanFactory`实现显式注册`bean post-processor`，需要如下代码：
 
     DefaultListableBeanFactory factory = new DefaultListableBeanFactory();
@@ -651,22 +661,25 @@
 值得注意的是，`Resource`接口并不确定功能，而是包装，例如：`UrlResource`包装了一个`URL`，并且使用被包装的`URL`去执行工作。
 ## 2.1 内置资源实现(Built-int Resource implementations)##
 ## 2.1.1 UrlResource 
-`UrlResource`可以用来访问任何能够通过`url`访问的对象，包括文件、`http`对象、`ftp`对象等，所有的`URLs`都包涵了标准的字符串表示形式。`UrlResouce`可以有`UrlResource`构造器显式生成，或者在调用以代表路径的字符串为参数的API方法时隐式生成，后者最终由`PropertyEditor`决定生成哪种`Resource`,如果字符串参数中包含前缀如：`classpath:`，则会创建对应的`Resouce`，否则默认创建`UrlResource`实例
+`UrlResource`可以用来访问任何能够通过`url`访问的对象，包括文件、`http`对象、`ftp`对象等，所有的`URLs`都包涵了标准的字符串表示形式。`UrlResouce`可以有`UrlResource`构造器显式生成，或者在调用以代表路径的字符串为参数的`API`方法时隐式生成，后者最终由`PropertyEditor`决定生成哪种`Resource`,如果字符串参数中包含前缀如：`classpath:`，则会创建对应的`Resouce`，否则默认创建`UrlResource`实例
         
 ## 2.1.2 ClassPathResource ##
 
 表示应该从类路径中获取的资源，当字符串参数中包含前缀：`classpath:`时可以隐式创建`ClassPathResouce`实例
 
 ## 2.1.3 FileSystemResouce ##
-        加载文件资源
+
+加载文件资源
 
 ## 2.1.4 ServletContextResource ##
 
 ## 2.1.5 InputStreamResource ##
-        给定`InputStream`的`Resource`实现
+
+给定`InputStream`的`Resource`实现
 
 ## 2.1.6 ByteArrayResource ##
-        给定字节数组的`Resource`实现
+
+给定字节数组的`Resource`实现
 
 
 
@@ -680,7 +693,7 @@
 
     }
 ```
-所有的应用上下文都实现了`ResourceLoader`接口，因此他们都可以获取`Resource`实例，如果location参数未指定前缀，我们会获取和上下文一致的`Resource`类型，例如在`ClassPathXmlApplicationContext`实例获取`ClassPathResource`:
+所有的应用上下文都实现了`ResourceLoader`接口，因此他们都可以获取`Resource`实例，如果`location`参数未指定前缀，我们会获取和上下文一致的`Resource`类型，例如在`ClassPathXmlApplicationContext`实例获取`ClassPathResource`:
 ```
     Resource template = ctx.getResource("some/resource/path/myTemplate.txt");
 ```
@@ -729,11 +742,12 @@
 
 这个特殊的前缀表明所有匹配的类路径资源都将被获取(内部通过`ClassLoader.getResources(...)`)
 `classpath:*`前缀还可以和`PathMatcher`模板结合，例如`classpath*:META-INF/*-beans.xml`，解析策略也很简单：调用`ClassLoader.getResources()`去获取类加载器层级下匹配最后一个非通配符片段路径的所有资源，然后在使用`PathMathcher`解析剩下的通配符子路径。
+
 `Note`：
 `classpath*:`和`Ant`风格模板组合时在所有通配符之前必须包含根路径，如`classpath*:META-INF/*-beans.xml`，必须包含`META-INF/`
 ## 3、DAO支持 ##
 `Spring`集成的`Data Access Object(DAO)`使得不同的数据访问技术如`JDBC`、`Hibernate`和`JPA`变得一致和简单，不用担心处理特定技术的异常处理，`Spring`将技术相关的异常例如`SQLException`翻译成以`DataAccessExceptio`n为根异常的异常类层级结构，这些异常包装了所有的原始异常信息。
-## 3.1 @Repository##
+## 3.1 @Repository ##
 任何`DAO`或者`repository`实现都需要访问持久层资源，这依赖于使用何种持久层技术，例如`JDBC-based repo`需要访问`JDBC DataSource`；`JPA-based repo`需要访问`EntityManager`，可以使用`@Autowired`，`@Inject`，`@Resource`，`@PersistenceContext`注入依赖，如：
 
     @Repository
@@ -756,8 +770,9 @@
  - 用在`@Controller`或者`@ControllerAdvice`类内部方法级注解，在所有`@RequestMapping`注解方法调用前初始化模型
  - 用在`@RequestMapping`方法上标注其返回值是一个模型属性
 
-一个控制器可以任意个`@ModelAttribute`方法，这些方法均在`@RequestMapping`方法前调用，
-code example:
+一个控制器可以任意个`@ModelAttribute`方法，这些方法均在`@RequestMapping`方法前调用。
+
+`code example`:
 
     @ModelAttribute
     public void populateModel(@RequestParam String number, Model model) {
@@ -800,7 +815,7 @@ code example:
 
 
 ## 4.2 MVC配置 ##
-## 4.2.1 允许MVC配置 ##
+## 4.2.1 @EnableWebMvc ##
 使用`@EnableWebMvc`注解，该注解用来注解`@Configuration`类导入`WebMvcConfigurationSupport`注册的配置：
 
     @Configuration
@@ -1028,7 +1043,7 @@ code example:
         <!--<property name="order" value="0"/>-->
     </bean>
     
-配置`ContentNegotiatingViewResolver`，根据请求的文件类型或者`Accept`属性来解析视图，该视图解析器本身不会解析视图，将解析工作代理给其他的视图解析器，因此该解析器的优先级最高，视图解析器通过请求的媒体类型(`MediaType`)来选择一个合适的视图(`View`)，请求的媒体类型通过配置的`ContentNegotiatingManager`确定，查看`ContentNegotiationgManager`的源码，可以看出是通过解析策略(`ContentNegotiatingStrategy`，该接口有很多实现，通常用到的是`ParameterContentNegotiationStrategy,根据请求参数来解析媒体类型，请求参数名称默认为format`和`PathExtensionContentNegotiationStrategy，根据路径后缀来解析媒体类型`)并根据请求来解析媒体类型的，`ContentNegotiatingManagerFactoryBean`提供了两个默认的解析策略，但是如果要配置自己的解析策略，直接注入`ContentNegotiatingManager`即可，附一段配置代码，这段代码注入了两个策略，可以解析请求`url?format=json`和`url/xx.json`，将这两个请求解析为`json`视图：
+配置`ContentNegotiatingViewResolver`，根据请求的文件类型或者`Accept`属性来解析视图，该视图解析器本身不会解析视图，将解析工作代理给其他的视图解析器，因此该解析器的优先级最高，视图解析器通过请求的媒体类型(`MediaType`)来选择一个合适的视图(`View`)，请求的媒体类型通过配置的`ContentNegotiatingManager`确定，查看`ContentNegotiationgManager`的源码，可以看出是通过解析策略(`ContentNegotiatingStrategy`，该接口有很多实现，通常用到的是`ParameterContentNegotiationStrategy`,根据请求参数来解析媒体类型，请求参数名称默认为`format`和`PathExtensionContentNegotiationStrategy`，根据路径后缀来解析媒体类型)并根据请求来解析媒体类型的，`ContentNegotiatingManagerFactoryBean`提供了两个默认的解析策略，但是如果要配置自己的解析策略，直接注入`ContentNegotiatingManager`即可，附一段配置代码，这段代码注入了两个策略，可以解析请求`url?format=json`和`url/xx.json`，将这两个请求解析为`json`视图：
 
     <bean id="contentNegotiationManager" class="org.springframework.web.accept.ContentNegotiationManager">
         <constructor-arg name="strategies">
@@ -1080,6 +1095,8 @@ code example:
     
 ## 5.1 特殊bean类型 ##
 `DispatcherServlet`将请求处理和响应渲染代理给一些特殊`beans`，这些`bean`指的是由`Spring`管理的对象实例，它们通常内置，但是可配置、继承或者替换.
+
+
 |BeanType|Explanation|
 |---|---|
 |`HandlerMapping`|将请求映射到处理函数，并附带拦截器的一系列预-后处理，两个主要实现：`RequestMappingHandlerMapping`(支持`@RequestMapping`)和`SimpleUrlHandlerMapping`(显示注册`URI`路径到处理函数)|
@@ -1090,6 +1107,7 @@ code example:
 |`ThemeResolver`|解析`web`应用能用的主题，如提供个性化布局|
 |`MultipartResolver`|利用`multipart`解析库解析`multi-part`请求(例如浏览器上传表单文件)|
 |`FlashMapManager`|存储。检索输入和输出`FlashMap`，`FlashMap`可以通过`redirect`将属性在请求间传递|
+
 
 ## 5.2 Web MVC配置 ##
 应用可以自定义上述特殊`bean`类型，`DispatcherServlet`会检查`WebApplicationContext`，寻找每个特殊`bean`，如果没有匹配的`bean`类型，就会用`DispatcherServlet.properties`里定义的默认`bean`类型。
@@ -1140,6 +1158,7 @@ code example:
 ## 5.6 异常处理 ##
 如果在请求映射期间或者请求处理时发生异常，`DispatcherServlet`会将异常解析代理给`HandlerExceptionResolver`链，并提供错误响应这种备选处理。
 `HandlerExceptionResolver`实现：
+
 |类|描述|
 |:-:|:-:|
 |`SimpleMappingExceptionResolver`|提供异常类名和错误视图名称之间的映射，对于浏览器应用中渲染错误页很有用|
