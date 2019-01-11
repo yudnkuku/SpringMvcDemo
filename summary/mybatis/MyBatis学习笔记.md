@@ -35,9 +35,11 @@
     </configuration>
 
 **关于命名空间namespace**
+
 `namespace`属性必填，并且需要和`mapper`接口的全类名一致。
 
 **关于SqlSession**
+
 每个线程都应该有它自己的`SqlSession`实例，`SqlSession`的实例不是线程安全的，因此是不能共享的，所以它的最佳作用域是请求或方法作用域，绝对不能将`SqlSession`实例引用放在一个类的静态域，甚至一个类的实例变量也不行，也绝不能将 `SqlSession` 实例的引用放在任何类型的管理作用域中，比如 `Servlet` 架构中的 `HttpSession`。如果你现在正在使用一种 `Web` 框架，要考虑 `SqlSession` 放在一个和 `HTTP` 请求对象相似的作用域中。换句话说，每次收到的 `HTTP` 请求，就可以打开一个 `SqlSession`，返回一个响应，就关闭它。这个关闭操作是很重要的，你应该把这个关闭操作放到 `finally` 块中以确保每次都能执行关闭。下面的示例就是一个确保 `SqlSession` 关闭的标准模式：
 
     SqlSession session = sqlSessionFactory.openSession();
@@ -74,10 +76,12 @@
 ## 2.2 setting ##
 `MyBatis`参数设置，调整`MyBatis`的运行时行为，参考：[MyBatis设置][1]
 常用`setting`配置：
+
 |设置参数|描述|有效值|默认值|
 |:-:|:-:|:-:|:-:|
 |`cacheEnabled`|是否启用二级缓存，包括一级缓存和二级缓存|`true/false`|`true`|
 |||||
+
 ## 2.3 typeAliases ##
 类型别名是为`Java`类型设置一个短的名字，它只和`XML`配置有关，存在的意义仅在于减少类完全限定名的冗余
 
@@ -253,7 +257,9 @@ sql元素可以作为可重用的SQL代码片段，包含在其他语句中
     </select>
     
 **高级结果映射**
+
 **一对一关联**
+
 关联元素处理“有一个”类型的关系，比如，一个博客有一个作者用户，分为两种类型：
 
  - 嵌套查询：通过执行另外一个`SQL`语句映射语句来返回预期的复杂类型
@@ -304,7 +310,7 @@ sql元素可以作为可重用的SQL代码片段，包含在其他语句中
     <resultMap id="blogResult" type="Blog">
       <id property="id" column="blog_id" />
       <result property="title" column="blog_title"/>
-      <association property="author" column="blog_author_id" javaType="Author" resultMap="authorResult"/>
+      <association property="author" column="blog_author_id" javaType="Author" resultMap="authorResult"/>  <!--这里的column是B表的查询列名，并且还是连接查询的列，例如上述连接查询 B.author_id=A.id，连接查询列是B.author_id，实际映射到blog_author_id，因此这里的column=blog_column_id-->
     </resultMap>
     
     <resultMap id="authorResult" type="Author">
@@ -363,6 +369,7 @@ sql元素可以作为可重用的SQL代码片段，包含在其他语句中
     </resultMap>
 
 **集合**
+
 集合描述一对多的关系，例如一个博客有很多文章，同样结果集映射可以用集合的嵌套查询和嵌套结果。
 
     <resultMap id="blogResult" type="Blog">
@@ -549,9 +556,11 @@ sql元素可以作为可重用的SQL代码片段，包含在其他语句中
 
 ## 其他一些注意事项 ##
 1、为什么要设置`jdbcType`
+
 官方文档有这样一句话，`The JDBC Type is required by JDBC for all nullable columns, if null is passed as a value. You can investigate this yourself by reading the JavaDocs for the PreparedStatement.setNull() method.`,对于可能出现的`null`值，在插入的时候如果没有指定`jdbcType`，`MyBatis`会默认加上`jdbcType.OTHER`，并报错，此时加上`jdbcType`即可，参考[Mybatis插入null值加jdbcType][5]，另可参考`javaType`和`jdbcType`的[映射表][6]
 
 2、${}和#{}的区别
+
 一般的，通过`#{}`传参时，`sql`解析会自动套上单引号，比如：
 
     select * from user where name = #{name}
@@ -566,6 +575,7 @@ sql元素可以作为可重用的SQL代码片段，包含在其他语句中
 当入参是`age`时，`sql`语句为：
 
     select * from user order by age
+    
 **实际应用**
 
     <select id="selectUserInfoByMixed" parameterType="map" resultType="com.cckj.bean.UserInfo">
@@ -619,15 +629,18 @@ sql元素可以作为可重用的SQL代码片段，包含在其他语句中
 
 ## MyBatis面试相关 ##
 1、`MyBatis`是什么
+
 `mybatis`是一个优秀的持久层框架，它对`jdbc`操作数据库的过程进行了封装，使开发者只用关注`sql`语句本身，不用去关注例如注册驱动，加载连接，得到`statement`，处理结果集等复杂的过程。 
 `mybatis`通过`xml`或者注解的方式，将要执行的各种`sql`语句配置起来，并通过`Java`对象和`statement`中的`sql`语句映射生成最终的`sql`语句，最后由`mybatis`框架执行`sql`语句，并将结果映射成`Java`对象返回
 
 2、`MyBatis`工作原理
+
 `mybatis`通过配置文件创建`sqlsessionFactory`，`sqlsessionFactory`根据配置文件，配置文件来源于两个方面:一个是`xml`，一个是`Java`中的注解，获取`sqlSession`。**`SqlSession`包含了执行`sql`语句的所有方法**，可以通过`SqlSession`直接运行映射的`sql`语句，完成对数据的增删改查(`select/insert/update/delete`)和事务的提交(`commit`)工作，用完之后关闭`SqlSession`。 
 
 `MyBatis`是基于`jdk`动态代理的(基于接口，接口就是`DAO`接口)，因此在执行`DAO`接口的方法时，会触发代理类`MapperProxy`的方法调用(该代理类实现了`InvocationHandler`接口，这个接口在`jdk`动态代理中常用，`Proxy.newProxtInstance(classLoader, Class[]{}, InvocationHandler)`用于构造代理对象)，由于动态代理，会继续调用`InvocationHandler`实例的`invoke()`方法，查看源码，`invoke()`方法内部实际上调用了`sqlSession`实例的方法(看来最终还是回到了`sql`语句的执行)，执行对应的`sql`语句，因此说白了就是调用`DAO`方法最后还是执行了对应的`sql`语句(具体源码可以查看`MapperProxy`，参考`mybatis`源码解析)，可以看出`MyBatis`框架同样只声明了`DAO`接口，没有具体的实现类，这和`Spring Data JPA`有点类似，在项目实际运行时，`MyBatis`框架实际上利用了`JDK`动态代理策略将`DAO`接口的方法调用交给代理类执行，最后落脚到`sql`语句的执行，实现数据库相关的操作。
 
 3、工作流程
+
 `mapper`接口：
 接口的全类名是`xml`文件中`namespace`属性的值
 
@@ -644,9 +657,11 @@ sql元素可以作为可重用的SQL代码片段，包含在其他语句中
  - `MyBatis`自动将结果集封装成`Java`对象，通过`statement`的`resultType`定义输出的类型。避免了因`sql`变化，对结果集处理麻烦的问题
 
 5、`#{}`和`${}`的区别是什么
+
 `#{}`是预编译处理，`${}`是字符串替换，`MyBatis`在处理`#{}`时，会自动插入单引号，而在处理`${}`时，不会插入单引号，使用`#{}`可以有效防止`SQL`注入，提高系统安全性
 
 6、当实体类中属性名和表中字段名称不一致怎么处理
+
 方法一：通过在查询的`sql`语句中定义字段名的别名，让字段名别名和实体类的属性名一致
 
     <select id=”selectorder” parametertype=”int” resultetype=”me.gacl.domain.order”> 
@@ -667,6 +682,7 @@ sql元素可以作为可重用的SQL代码片段，包含在其他语句中
         </reslutMap>
 
 7、模糊查询`like`语句怎么写
+
 方法一：在`java`代码中添加`sql`通配符
 
     string wildcardname = “%smi%”; 
@@ -773,6 +789,7 @@ sql元素可以作为可重用的SQL代码片段，包含在其他语句中
 
 
 10、`MyBatis`如何将`sql`执行结果封装为目标对象并返回的，都有哪些映射形式？
+
 第一种是使用`<resultMap>`标签，逐一定义列名和对象属性名之间的映射关系。第二种是使用`sql`列的别名功能，将列别名书写为对象属性名，比如`T_NAME AS NAME`，对象属性名一般是`name`，小写，但是列名不区分大小写，`Mybatis`会忽略列名大小写，智能找到与之对应对象属性名，你甚至可以写成`T_NAME AS NaMe`，`Mybatis`一样可以正常工作。
 
 有了列名与属性名的映射关系后，`Mybatis`通过反射创建对象，同时使用反射给对象的属性逐一赋值并返回，那些找不到映射关系的属性，是无法完成赋值的。
@@ -780,6 +797,7 @@ sql元素可以作为可重用的SQL代码片段，包含在其他语句中
 11、动态`sql`
 
 12、`MyBatis`的`xml`映射文件中，不同的`xml`映射文件，`id`是否可以重复？
+
 不同的`Xml`映射文件，如果配置了`namespace`，那么`id`可以重复；如果没有配置`namespace`，那么id不能重复；毕竟`namespace`不是必须的，只是最佳实践而已(这句描述有问题，`<mapper>`标签必须加上`namespace`属性)。
 
 原因就是`namespace+id`是作为`Map<String, MappedStatement>`的`key`使用的，如果没有`namespace`，就剩下`id`，那么，`id`重复会导致数据互相覆盖。有了`namespace`，自然`id`就可以重复，`namespace`不同，`namespace+id`自然也就不同。
