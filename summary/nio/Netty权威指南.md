@@ -473,6 +473,7 @@ ChannelHandler功能说明
  
 ## NioEventLoop源码分析 ##
 **NioEventLoop设计原理**
+
 `Netty`的`NioEventLoop`并不是一个纯粹的`I/O`线程，它除了负责`I/O`的读写之外，还兼顾处理一下两类任务：
  - 系统`task`：通过调用`NioEventLoop`的`execute(Runnable task)`方法实现，`Netty`有很多系统`task`，创建它们的主要原因是：当`/IO`线程和用户线程同时操作网络资源时，为了防止并发操作导致的锁竞争，将用户线程的操作封装成`task`放入消息队列中，由`I/O`线程负责执行，这样就实现了局部无锁化
  - 定时任务：通过调用`NioEventLoop`的`schedule(Runnable command, long delay, TimeUnit unit)`方法实现

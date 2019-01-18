@@ -4,7 +4,7 @@
 
 ---
 
-## Future ##
+## ChannelFuture ##
 
 `channel`的每个`outbound I/O`操作都会返回一个`ChannelFuture`，`ChannelFutrue`继承自`Future`，此`Future`接口继承自`juc`包中的`Future`接口，下面看看`Channel`中的一些`ountbound`方法
 
@@ -41,6 +41,76 @@
 4、创建一个`ByteBuf`来保存数据
 5、异步写数据，并返回`ChannelFuture`
 6、如果操作失败，打印错误原因
+
+`ChannelFuture`表示异步`IO`操作的结果，`Netty`中所有的`IO`操作都是异步进行的，你可以添加`ChannelFutureListener`监听`IO`操作是否完成。
+
+在等待`IO`操作完成时推荐使用`addListener`方法而不要使用`await`方法，因为`addListener`方法是非阻塞的，只是简单地将`ChannelFutureListener`监听添加到`ChannelFuture`，`IO`线程会在相关的`IO`操作完成后通知监听，`ChannelFutureListener`由于其非阻塞的特性具备良好的性能和资源利用，但是如果不适用事件驱动模型编程很难实现线性逻辑，相反，`await`是一个阻塞操作，调用线程会一直阻塞直到操作完成，尽管`await`方法很容易实现线性逻辑，但是调用线程会出现阻塞，在某些情况下还可能出现死锁，另外千万不要在`ChannelHandler`中调用`await`，因为`ChannelHandler`中的方法通常是在`IO`线程中调用，`await`会阻塞其正在等待的`IO`操作(等待`IO`操作完成，又阻塞了该`IO`线程，形成死锁)，也就是出现了死锁，如果在`IO`线程中调用`await`方法会抛出`BlockingOperationException`异常
+
+    //Bad 
+    public void channelRead(ChannelHandlerContext ctx, Message msg) {
+        ChannelFuture future = ctx.channel().close();
+        future.awaitUninterruptibly(); //不要在ChannelHandler中调用await方法
+    }
+    
+    //Good
+    public void channelRead(ChannelHandlerContext ctx, Message msg) {
+        ChannelFuture future = ctx.channel().close();
+        future.addListener(new ChannelFutureListener() {
+            public void operationComplete(ChannelFuture future) {
+                //Perform post-closure operation
+            }
+        })
+    }
+
+看一下`DefaultPromise.await`的实现：
+
+    public Promise<V> await() throws InterruptedException {
+        //如果已经完成直接返回
+        if (isDone()) {
+            return this;
+        }
+        
+        //收到中断请求，抛出中断异常
+        if (Thread.interrupted()) {
+            throw new InterruptedException(toString());
+        }
+
+        synchronized (this) {   //获取对象锁
+            while (!isDone()) {
+                //checkDeadLock会检查是否出现死锁
+                checkDeadLock();
+                incWaiters();
+                try {
+                    wait();
+                } finally {
+                    decWaiters();
+                }
+            }
+        }
+        return this;
+    }
+    //checkDeadLock
+    protected void checkDeadLock() {
+        //判断当前线程是否是IO线程，如果是则抛出BlockingOperationException
+        EventExecutor e = executor();
+        if (e != null && e.inEventLoop()) {
+            throw new BlockingOperationException(toString());
+        }
+    }
+
+另外，不要将`IO`超时时间和`await`超时时间混淆，如果`IO`超时时间到了，`future`返回结果是`completed with failure`，`IO`超时时间应该通过传输参数来配置：
+
+    Bootstrap b = new Bootstrap();
+    b.option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 10000);
+    ChannelFuture future = b.connect();
+    f.awaitUninterruptibly();
+    if (f.isCancelled()) {
+        //取消
+    } else if (!future.isSuccess()) {
+        future.cause().printStackTrace();
+    } else {
+        //成功
+    }
 
 ## 事件流 ##
 
@@ -472,6 +542,48 @@
 
 `channelRead()`方法需要加入同步处理。
 
+## 线程模型 ##
+1、单线程模型
+
+首先看一段代码：
+
+    NioEventLoopGroup bossGroup = new NioEventLoopGroup(1);
+    ServerBootstrap b = new ServerBootstrap();
+    b.group(bossGroup)
+     .channel(NioServerSocketChannel.class)
+     ...
+
+上述代码就是一个典型的单线程模型，即`acceptro`处理和`handler`处理都在同一个线程中进行。
+    
+    //实际上设置了parentGroup=childGroup
+    public ServerBootstrap group(EventLoopGroup group) {
+        return group(group, group);
+    }
+    
+    public ServerBootstrap group(EventLoopGroup parentGroup, EventLoopGroup childGroup) {
+        super.group(parentGroup);
+        if (childGroup == null) {
+            throw new NullPointerException("childGroup");
+        }
+        if (this.childGroup != null) {
+            throw new IllegalStateException("childGroup set already");
+        }
+        this.childGroup = childGroup;
+        return this;
+    }
+
+2、多线程模型
+
+先看一段代码：
+
+    EventLoopGroup bossGroup = new NioEventLoopGroup(1);
+    EventLoopGroup workerGroup = new NioEventLoopGroup();
+    ServerBootstrap b = new ServerBootstrap();
+    b.group(bossGroup, workerGroup) //设置了bossGroup&workerGroup
+     .channel(NioServerSocketChannel.class)
+     ...
+
+分别设置了`bossGroup`和`workerGroup`线程组，也就是说将`acceptor`和`handler`两个处理过程分配到两个线程中进行
 
 ## 线程模型源码分析 ##
 服务端在启动时，创建了两个`NioEventLoopGroup`，它们实际上是两个独立的`Reactor`线程池，一个用于接收客户端的`TCP`连接，另一个用于处理`I/O`相关的读写操作，或者执行系统`Task`、定时任务`Task`。
