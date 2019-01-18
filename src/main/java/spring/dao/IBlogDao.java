@@ -19,4 +19,6 @@ public interface IBlogDao {
 
     List<Blog> selectBlogsByIds(List<Integer> idList);
 
+    int updateBlogById(@Param("blog_id") int blog_id, @Param("name") String name, @Param("author_id") int author_id);
+
 }

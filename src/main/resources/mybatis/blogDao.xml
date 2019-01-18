@@ -69,14 +69,22 @@
         from blog
         left outer join author on blog.author_id=author.author_id
         left outer join article on blog.id=article.blog_id
-        <where>
-          <if test="blog_id > 1">
-              AND blog.id = #{blog_id}
-          </if>
-          <if test="author_id != null">
-              AND blog.author_id=#{author_id}
-          </if>
-        </where>
+        <!--<where>-->
+          <!--<if test="blog_id > 1">-->
+              <!--AND blog.id = #{blog_id}-->
+          <!--</if>-->
+          <!--<if test="author_id != null">-->
+              <!--AND blog.author_id=#{author_id}-->
+          <!--</if>-->
+        <!--</where>-->
+        <trim prefix="where" prefixOverrides="and |or">
+            <if test="blog_id > 1">
+                blog.id = #{blog_id}
+            </if>
+            <if test="author_id != null">
+                and blog.author_id = #{author_id}
+            </if>
+        </trim>
     </select>
 
     <select id="selectBlogsByIds" resultMap="blogResult">
@@ -96,5 +104,18 @@
             #{item}
         </foreach>
     </select>
+
+    <update id="updateBlogById">
+        update blog
+        <!--<set>-->
+            <!--<if test="name != null">name=#{name},</if>-->
+            <!--<if test="author_id != null">author_id=#{author_id},</if>-->
+        <!--</set>-->
+        <trim prefix="set" suffixOverrides=",">
+            <if test="name != null">name=#{name},</if>
+            <if test="author_id != null">author_id=#{author_id},</if>
+        </trim>
+        where id=#{blog_id}
+    </update>
 
 </mapper>

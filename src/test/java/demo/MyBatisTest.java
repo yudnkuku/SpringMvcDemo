@@ -85,4 +85,10 @@ public class MyBatisTest {
             }
         }
     }
+
+    @Test
+    public void testUpdate() {
+        DBlog dBlog = new DBlog();
+        int result = dBlog.updateBlogById(1, "c sharp", 3);
+    }
 }

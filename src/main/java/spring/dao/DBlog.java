@@ -49,4 +49,20 @@ public class DBlog extends DBase {
         }
         return blogs;
     }
+
+    public int updateBlogById(int blog_id, String name, int author_id) {
+        int result = 0;
+        SqlSession sqlSession = openSession();
+        try {
+            IBlogDao dao = sqlSession.getMapper(IBlogDao.class);
+            result = dao.updateBlogById(blog_id, name, author_id);
+            //一定要手动commit才能更新
+            sqlSession.commit();
+        } finally {
+            if (null != sqlSession) {
+                sqlSession.close();
+            }
+        }
+        return result;
+    }
 }

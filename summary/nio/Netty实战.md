@@ -137,6 +137,48 @@
 
 ## ChannelHandler和ChannelPipeline ##
 
+`ChannelHandler`用来处理`IO`事件或者拦截`IO`操作，并将这些事件或者操作传递给`ChannelPipeline`中的下一个`ChannelHandler`，`Netty`提供了其抽象实现类`ChannelHandlerAdapter`，一般在实际编程过程中也会直接继承`ChannelHandlerAdapter`，而不是去实现`ChannelHandler`，`ChannelHandler`是通过`ChannelHandlerContext`对象来提供(可以查看`DefaultChannelHandlerContext`的构造方法)，也是通过这个`context`对象来和它从属的`pipeline`进行交互，`ChannelHandler`可以向上或向下传递事件，动态地改变`pipeline`
+
+`ChannelHandler`提供的方法：
+
+第一类：生命周期方法
+
+1、`handlerAdded`：当`handler`添加进`pipeline`后调用
+
+2、`handlerRemoved`:当`handler`从`pipeline`移除时会调用
+
+第二类：`Inbound`(入站)事件
+
+1、`exceptionCaught`:当抛出异常时调用
+
+2、`channelRegistered`:当`Channel`注册到`EventLoop`关联的`Selector`上时调用
+
+3、`channelActive`:当`Channel`绑定端口后调用
+
+4、`channelInactive`:当`Channel`解绑端口后调用
+
+5、`channelRead`:当从对端读取数据后调用
+
+6、`channelReadComplete`:读取完成后调用
+
+第三类：`Outbound`(出站)事件
+
+1、`bind`:绑定
+
+2、`connect`:连接
+
+3、`disconnect`:断开连接
+
+4、`close`:关闭
+
+5、`read`:读数据
+
+6、`write`:写数据
+
+7、`flush`:清空缓冲区数据
+
+这些方法都不会是自动调用，而是通过`ChannelPipeline`的各个对应的方法调用，可以看看`ChannelPipeline`提供的方法
+
 **Channel生命周期**
 
 |状态|描述|
@@ -859,7 +901,7 @@
                 //fireChannelRegistered，这里会触发之前设置的ChannelInitializer执行channelRegistered()方法
                 pipeline.fireChannelRegistered();
                 if (isActive()) {
-                    //fireChannelActive
+                    //fireChannelActive，设置channel关联的selector感兴趣的ops
                     pipeline.fireChannelActive();
                 }
 
@@ -870,7 +912,7 @@
         //死循环
         for (;;) {
             try {
-                //将selector注册到channel，selector是在NioEventLoop构造时通过openSelector方法生成的，注意这里的attachment就是当前NioServerSocketChannel实例
+                //将selector注册到channel，selector是在NioEventLoop构造时通过openSelector方法生成的，注意这里的attachment就是当前NioServerSocketChannel实例，ops参数传的是0，可见注册时只是初始化了ops，而真正设置ops是在后面的pipeline.fireChannelActive方法中
                 selectionKey = javaChannel().register(eventLoop().selector, 0, this);
                 return;
 
@@ -941,18 +983,19 @@
                 if (!ensureOpen(promise)) {
                     return;
                 }
-                //核心是调用doRegister()方法
+                //核心是调用doRegister()方法(1)
                 doRegister();
                 registered = true;
                 promise.setSuccess();
                 //注册完后调用pipeline.fireChannelRegistered()方法
                 pipeline.fireChannelRegistered();
                 if (isActive()) {
-                    pipeline.fireChannelActive();
+                   //调用pipeline.fireChannelActive方法，这里会最终进入到AbstractNioChannel.doBeginRead方法中，修改该channel的selector感兴趣的io操作(2)
+                   pipeline.fireChannelActive();   
                 }
             }
     
-    //AbstractNioChannel.doRegister()方法
+    (1)//AbstractNioChannel.doRegister()方法
     protected void doRegister() throws Exception {
         boolean selected = false;
         for (;;) {
@@ -960,6 +1003,24 @@
                 selectionKey = javaChannel().register(eventLoop().selector, 0, this);
                 return;
             } 
+    
+    (2)//AbstractNioChannel.doBeginRead方法
+    @Override
+    protected void doBeginRead() throws Exception {
+        if (inputShutdown) {
+            return;
+        }
+
+        final SelectionKey selectionKey = this.selectionKey;
+        if (!selectionKey.isValid()) {
+            return;
+        }
+
+        final int interestOps = selectionKey.interestOps();
+        if ((interestOps & readInterestOp) == 0) {
+            selectionKey.interestOps(interestOps | readInterestOp);
+        }
+    }
             
 `step2`：`boss`线程会不断轮询`NioServerSocketChannel`相关的`selector`是否有关心的操作(客户端的连接请求)，此轮询过程在`NioEventLoop`的`run`方法中，在死循环中不断轮询，最后进入方法`processSelectedKey`：
 
