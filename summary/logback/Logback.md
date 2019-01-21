@@ -38,8 +38,10 @@
     }
 
 **日志等级**
+
 日志等级分为五种：`TRACE<DEBUG<INFO<WARN<ERROR`
 `Logger`默认的日志级别是`DEBUG`,日志级别同样可以继承，如果子`logger`没有分配`level`，那么会直接继承自第一个定义了`level`的父`logger`，否则会使用默认的`debug`，例如：
+
 |日志名称|分配`level`|有效`level`|
 |:-:|:-:|:-:|
 |`root`|`DEBUG`|`DEBUG`|
@@ -48,6 +50,7 @@
 |`X.Y.Z`|`ERROR`|`ERROR`|
 
 **Appender&Layout**
+
 `appender`是日志要输出的位置，例如控制台、文件、数据库等等，一个`logger`可以配置多个`appender`。
 `appender`的`additivity`属性指的是该`appender`是否会将日志输出到父级`appender`，默认值是`true`
 除了日志的输出位置，还需要定制日志的格式，可以使用内置的转换符来定义日志输出格式：
@@ -90,6 +93,7 @@
 `appender`有多种：`ConsoleAppender(输出到控制台)`、`FileAppender(输出到文件)`、`RollingFileAppender(输出到滚动文件)`、`AsyncAppender(异步输出到文件)`
 
 **1、FileAppender**
+
 一段`FileAppender`配置：
 
     //需要指定appender name和class属性
@@ -120,14 +124,18 @@
       </appender>
 
 **2、RollingFileAppender**
+
 继承自`FileAppender`，指定了滚动日志文件的大小，例如将日志输出到活跃日志文件`log.txt`(由`file`元素定义)，当某个特定的条件满足时，就会将日志归档到别的文件(文件路径由`fileNamePattern`定义)。
 和`RollingFileAppender`配合使用的包括：`RollingPolicy`(负责发生`rollover`时的行为)和`TriggeringPolicy`(决定发生`rollover`的时机)
 
 **TimeBasedRollingPolicy**
+
 使用最广泛的滚动策略，定义了基于时间的滚动策略，例如通过天或者月，`TimeBasedRollingPolicy`实现了`RollingPolicy`和`TriggeringPolicy`接口，因此可以同时指定滚动策略和滚动触发时机。
 
 常用属性：
+
 1、`fileNamePattern`:具有**双重意义**，一可以计算出推算出滚动周期，另外还可以指定**归档文件名称**(和`appender`的`file`属性不同，后者指定**当前的活跃日志文件**，还未归档)，例如`yyyy-MM`和`yyyy@MM`都指定了按月滚动，但是拥有不同的文件名称。
+
 2、`maxHistory`:控制归档文件的最大数量，删除过时的文件。例如如果你指定了按月滚动，那么设置`maxHistory=6`，那么只会保留最近6个月的日志文件，超过6个月的日志文件会被删除
 
 以下是一个配置`RollingFileAppender`的例子：
@@ -160,11 +168,16 @@
     2、设置了file=/wombat/foo.txt，那么2018年12月6号临时写入file指定的文件，到24点时需要将该文件重命名为/wombat/foo.2018-12-06,然后重新新建一个/wombat/foo.txt文件继续作为活跃日志文件写入第二天的日志
 
 **FixedWindowRollingPolicy**
+
 `FixedWindowRollingPolicy`根据固定窗口算法来重命名文件名称，`fileNamePattern`属性必须包含`%i`，来指定当前`rollover index`，该类只实现了`RollingPolicy`接口
 常用属性：
+
 1、`minIndex`:下限
+
 2、`maxIndex`:上限
+
 3、`fileNamePattern`:文件名称表达式，必须包含`%i`
+
 例如第一次归档`i=1`，活跃日志名称(`file`属性指定)为`foo.log`，那么归档日志名称为`foo1.log`，第二次归档，`foo1.log`更名为`foo2.log`，`foo.log`更名为`foo1.log`，然后再新建一个`foo.log`作为活动的日志路径
 
 配置例程：
@@ -189,9 +202,11 @@
 
 
 **触发策略Triggering Policy**
+
 触发策略用来指导`RollingFileAppender`什么时候`rollover`
 
 **SizeBasedTriggeringPolicy**
+
 检查当前活跃日志文件的大小，如果超过了指定的大小(`maxFileSize`)，将会触发`rollover`
 `maxFileSize`可以被指定为`KB/MB/GB`等，例如`50KB/50MB/50GB`
 
@@ -216,6 +231,7 @@
     </appender>
 
 **3、AsyncAppender**
+
 异步日志`Appender`仅仅作为一个事件分派组件而不处理日志，因此它必须引用另外一个`appender`来处理日志。
 `AsyncAppender`会将日志事件缓存到`BlockingQueue`，其创建的工作线程会从队列头部取出事件，并将它们派发到附加的`appender`，默认情况下，当队列80%满时，会丢弃掉`TRACE/DEBUG/INFO`级别的日志事件。可以设置`discardubgThreshold=0`不丢弃任何事件
 常用属性：
@@ -264,6 +280,7 @@
 10、`exception{depth}/throwable{depth}`:输出和日志事件相关的异常堆栈信息，`depth`表示打印深度，有三个选项：`short/full/Any integer`，默认是`full`
 
 **格式化修饰符**
+
 格式化修饰符放在`%`和转换符之间，例如`%-10.20`，表示左对齐，最少10位，最大20位，如果数据不超过10位用空格补齐，如果超过了10位，从头部删除掉多余的字符。
 举几个例子：
 
@@ -274,6 +291,7 @@
 `LevelFilter`可以根据规则过滤掉日志事件。
 
 **LevelFilter**
+
 根据日志级别过滤事件，一般配置如下：
 
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">         
@@ -309,6 +327,7 @@
     }
 
 **ThresholdFilter**
+
 `ThresholdFilter`可以过滤掉级别低于指定级别的日志事件
 
     <appender name="CONSOLE"
