@@ -231,3 +231,12 @@
  - `-XX:+TraceClassUnLoading`:查看类的卸载信息
  - `-XX:+HeapDumpOnOutOfMemoryError`:让虚拟机在出现内存溢出异常时`Dump`出当前的堆内存转储快照
  - `-XX:CompileThreshold=1000`:表示某个方法如果被调用1000次以后，会被认为是热点代码，并触发即时编译 
+
+
+## java常用命令 ##
+
+**javap**
+
+    javap -v A.class #输出class文件的全部信息
+    javap -c A.class #对class文件进行反汇编，输出字节码指令
+    javap -l A.class #输出行号和本地变量列表
