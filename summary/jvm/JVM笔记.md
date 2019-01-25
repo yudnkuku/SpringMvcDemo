@@ -195,7 +195,7 @@
  
  
 ## 虚拟机参数总结 ##
-这里有个小窍门记这些命令：`-XX`设置参数要带等号，例如`-XX:PermSize=10M`，`-XX`执行某些操作需要加前缀`-`，例如`-XX:+PrintGCDetails`，`-X`设置内存大小不需要等号，例如`-Xms10M -Xmx10M -Xmn10M -Xss128K -Xoss128K`，这里的`m`可以理解为`memory`缩写
+这里有个小窍门记这些命令：`-XX`设置参数要带等号，例如`-XX:PermSize=10M`，`-XX`执行某些操作需要加前缀`+`，例如`-XX:+PrintGCDetails`，`-X`设置内存大小不需要等号，例如`-Xms10M -Xmx10M -Xmn10M -Xss128K -Xoss128K`，这里的`m`可以理解为`memory`缩写
 
 **1、内存分配命令**
 
