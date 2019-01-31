@@ -7,7 +7,7 @@
 ## shiro的逻辑架构 ##
 `shiro`的逻辑架构主要包括认证(`Authentication`)、授权(`Authorization`)、会话管理
 
-图：`shiro`逻辑架构
+![Shiro逻辑架构][1]
 
 ## shiro组件间的交互 ##
 `Subject`:可以认为是当前参与应用安全部分的主角，所有的`Subject`都需要`SecurityManager`，当你与`Subject`进行交互，这些交互行为实际上被代理到`SecurityManager`，例`Subject`的实现`DelegatingSubject`中的登录方法就是将登录请求代理到内部的`securityManager`。
@@ -24,8 +24,11 @@
 
 架构图：
 
-图
+![Shiro详细架构][2]
 
+流程交互图：
+
+![Shiro流程图][3]
 ## 项目配置 ##
 1、配置缓存：例如后面可能会用到的密码重试缓存(将用户名称和密码重试次数缓存起来，判断用户登录时密码重试次数)
 
@@ -736,3 +739,8 @@
     public Object postProcessAfterInitialization(Object bean, String beanName) throws BeansException {
         return bean;
     }
+
+
+  [1]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/shiro/shiro%E6%A1%86%E6%9E%B6%E6%A6%82%E8%BF%B0.PNG
+  [2]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/shiro/shiro%E6%A1%86%E6%9E%B6.PNG
+  [3]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/shiro/shiro%E6%B5%81%E7%A8%8B.PNG
