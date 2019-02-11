@@ -36,7 +36,7 @@ ava`对象)映射成数据库中的记录
 
 一些成员变量，可以通过`set`方法注入
       
-      //配置文件路径,mybatis-config.xml
+      //配置文件mybatisConfig.xml的路径，将文件读取成Resource对象
       private Resource configLocation;
       //mapper文件路径
       private Resource[] mapperLocations;
@@ -46,6 +46,59 @@ ava`对象)映射成数据库中的记录
       private TransactionFactory transactionFactory;
       //配置属性
       private Properties configurationProperties;
+
+在继续之前必须先看看`Configuration`的定义：
+      
+      //成员变量定义
+      protected Environment environment;    //环境
+      protected boolean safeRowBoundsEnabled = false;
+      protected boolean safeResultHandlerEnabled = true;
+      protected boolean mapUnderscoreToCamelCase = false;
+      protected boolean aggressiveLazyLoading = true;
+      protected boolean multipleResultSetsEnabled = true;
+      protected boolean useGeneratedKeys = false; 
+      protected boolean useColumnLabel = true;
+      protected boolean cacheEnabled = true;    //是否使用二级缓存，默认true
+      protected boolean callSettersOnNulls = false;
+      protected String logPrefix;
+      protected Class <? extends Log> logImpl;  //日志实现
+      protected LocalCacheScope localCacheScope = LocalCacheScope.SESSION;
+      protected JdbcType jdbcTypeForNull = JdbcType.OTHER;
+      protected Set<String> lazyLoadTriggerMethods = new HashSet<String>(Arrays.asList(new String[] { "equals", "clone", "hashCode", "toString" }));
+      protected Integer defaultStatementTimeout;
+      protected ExecutorType defaultExecutorType = ExecutorType.SIMPLE; //实际上运行sql的执行类，默认是SIMPLE
+      protected AutoMappingBehavior autoMappingBehavior = AutoMappingBehavior.PARTIAL;
+    
+      protected Properties variables = new Properties();
+      protected ObjectFactory objectFactory = new DefaultObjectFactory();
+      protected ObjectWrapperFactory objectWrapperFactory = new DefaultObjectWrapperFactory();
+      protected MapperRegistry mapperRegistry = new MapperRegistry(this);   //MapperRegistry实例，维护了接口和代理工厂的映射
+    
+      protected boolean lazyLoadingEnabled = false;
+      protected ProxyFactory proxyFactory;
+    
+      protected String databaseId;
+      protected Class<?> configurationFactory;
+    
+      protected final InterceptorChain interceptorChain = new InterceptorChain();
+      protected final TypeHandlerRegistry typeHandlerRegistry = new TypeHandlerRegistry();  //类似于MapperRegistry，管理TypeHandler，TypeHandler在设置sql参数和解析result时转换java类型和jdbc类型
+      protected final TypeAliasRegistry typeAliasRegistry = new TypeAliasRegistry();    //类似于MapperRegistry和TypeHandlerRegistry，管理等价名和类间的映射关系，例如Integer可用integer或者int替换
+      protected final LanguageDriverRegistry languageRegistry = new LanguageDriverRegistry();
+    
+      protected final Map<String, MappedStatement> mappedStatements = new StrictMap<MappedStatement>("Mapped Statements collection"); //维护接口方法全限定名称和MappedStatement间的映射关系，如果此map中没有某方法的对应键值，表明该方法没有在任何xml映射文件中声明
+      protected final Map<String, Cache> caches = new StrictMap<Cache>("Caches collection");    //缓存映射
+      protected final Map<String, ResultMap> resultMaps = new StrictMap<ResultMap>("Result Maps collection");   //ResultMap映射
+      protected final Map<String, ParameterMap> parameterMaps = new StrictMap<ParameterMap>("Parameter Maps collection");
+      protected final Map<String, KeyGenerator> keyGenerators = new StrictMap<KeyGenerator>("Key Generators collection");
+    
+      protected final Set<String> loadedResources = new HashSet<String>();
+      protected final Map<String, XNode> sqlFragments = new StrictMap<XNode>("XML fragments parsed from previous mappers");
+    
+      protected final Collection<XMLStatementBuilder> incompleteStatements = new LinkedList<XMLStatementBuilder>();
+      protected final Collection<CacheRefResolver> incompleteCacheRefs = new LinkedList<CacheRefResolver>();
+      protected final Collection<ResultMapResolver> incompleteResultMaps = new LinkedList<ResultMapResolver>();
+      protected final Collection<MethodResolver> incompleteMethods = new LinkedList<MethodResolver>();
+      protected final Map<String, String> cacheRefMap = new HashMap<String, String>();
 
 该接口实现了`InitializingBean`接口，因此在实例化该`bean`时会回调`afterPropertiesSet()`方法：
 
@@ -133,7 +186,7 @@ ava`对象)映射成数据库中的记录
         if ("package".equals(child.getName())) {
           //如果是<package>子节点
           String mapperPackage = child.getStringAttribute("name");
-          //将该package下的所有类全部注册到MapperRegistry，
+          //将该package下的所有类全部注册到MapperRegistry
           configuration.addMappers(mapperPackage);
         } else {
           //通过resource、url、class三个维度属性来定义mapper
@@ -153,16 +206,17 @@ ava`对象)映射成数据库中的记录
             XMLMapperBuilder mapperParser = new XMLMapperBuilder(inputStream, configuration, url, configuration.getSqlFragments());
             mapperParser.parse();
           } else if (resource == null && url == null && mapperClass != null) {
-            //如果只定义了class属性
+            //如果只定义了class属性，注册到MapperRegistry
             Class<?> mapperInterface = Resources.classForName(mapperClass);
             configuration.addMapper(mapperInterface);
           } else {
+            //不能同时定义多个元素，否则抛出异常
             throw new BuilderException("A mapper element may only specify a url, resource or class, but not more than one.");
           }
         }
       }
     }
-  }
+
   
 `MapperRegistry`源码：
 
@@ -250,7 +304,7 @@ ava`对象)映射成数据库中的记录
         this.mapperInterface = mapperInterface;
         this.methodCache = methodCache;
       }
-      //实现invoke()方法
+      //实现invoke()方法，对接口方法的调用实际上会代理到此方法
       public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
         if (Object.class.equals(method.getDeclaringClass())) {
           try {
@@ -277,6 +331,12 @@ ava`对象)映射成数据库中的记录
     }
     
 `MapperMethod`源码：
+    
+    //构造方法
+    public MapperMethod(Class<?> mapperInterface, Method method, Configuration config) {
+        this.command = new SqlCommand(config, mapperInterface, method); //构造SqlCommand对象
+        this.method = new MethodSignature(config, method);
+    }
     
     //执行sql
     public Object execute(SqlSession sqlSession, Object[] args) {
@@ -330,6 +390,33 @@ ava`对象)映射成数据库中的记录
         return result;
       }
       
+`SqlCommand`构造方法：
+    
+    //此方法主要检查接口方法是否在xml文件中定义了映射关系
+    public SqlCommand(Configuration configuration, Class<?> mapperInterface, Method method) throws BindingException {
+      //获取接口方法全限定名称
+      String statementName = mapperInterface.getName() + "." + method.getName();
+      MappedStatement ms = null;
+      //Configuration实例中的mappedStatements维护了方法名称到对应MappedStatement对象间的映射map
+      if (configuration.hasStatement(statementName)) {
+        ms = configuration.getMappedStatement(statementName);
+      } else if (!mapperInterface.equals(method.getDeclaringClass().getName())) { // issue #35
+        String parentStatementName = method.getDeclaringClass().getName() + "." + method.getName();
+        if (configuration.hasStatement(parentStatementName)) {
+          ms = configuration.getMappedStatement(parentStatementName);
+        }
+      }
+      //如果没有绑定映射关系，抛出异常，例如接口里的方法在.xml文件中未声明
+      if (ms == null) {
+        throw new BindingException("Invalid bound statement (not found): " + statementName);
+      }
+      name = ms.getId();
+      type = ms.getSqlCommandType();
+      if (type == SqlCommandType.UNKNOWN) {
+        throw new BindingException("Unknown execution method for: " + name);
+      }
+    }
+
 `XMLMapperBuilder`源码：
 
     public void parse() {
