@@ -36,7 +36,7 @@
 1、找出所有可能存活的对象，这是标记过程。
 从`GC Roots`开始遍历对象，所有能够遍历到的对象都算是存活对象，打上一个标记(标记清除)
 
-2、存活独享被标记出来后，需要把这些对象从`eden`区或者`from survivor`区复制到`to survivor`，这个过程的耗时和存活对象的大小数量有很大的关系
+2、存活对象被标记出来后，需要把这些对象从`eden`区或者`from survivor`区复制到`to survivor`，这个过程的耗时和存活对象的大小数量有很大的关系
 
 3、如果开启了`-XX:+PrintGcDetails`，那么在`YGC`过程中，还会记录一些数据到日志中
 
@@ -217,7 +217,7 @@
  - `-XX:+PrintTLAB`:表示可以看到`TLAB`的使用情况
  - `-XX:+PrintGCDetails`:打印`GC`详情
  - `-XX:+PrintGCDateStamps`:打印`GC`日期时间戳
- - `-Xloggc:<filepath>`:将`gc`详情输出到日志文件
+ - `-Xloggc:<filepath>`:将`gc`详情输出到日志文件，文件路径中可以使用pattern，例如-Xloggc:gc_%t.log
 
 
  **3、垃圾收集器命令**
