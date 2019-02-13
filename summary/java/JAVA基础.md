@@ -610,6 +610,7 @@
       }
 
 再举一个例子：
+
 (1)静态代理
 加入我们有一个字体提供类，有多种实现(从磁盘、网络、系统)
 
@@ -657,7 +658,7 @@
 
     public abstract class ProviderFactory {
         public static FontProvider getFontProvider() {...}
-        public static ImageProvider getFontProvider() {...}
+        public static ImageProvider getImageProvider() {...}
         public static MusicProvider getMusicProvider() {...}
     }
 
