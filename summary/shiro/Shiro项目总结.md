@@ -740,6 +740,387 @@
         return bean;
     }
 
+**登录验证**
+
+登录入口：
+
+    subject = SecurityUtils.getSubject();
+    JtisToken token = new JtisToken(userName.trim(), 
+    JtisToken.strDec(password.trim()),
+                        JtisToken.TYPE_OA_SYSTEM);
+    subject.login(token);   //登录入口
+
+进入`DelegatingSubject.login`方法：
+
+    public void login(AuthenticationToken token) throws AuthenticationException {
+        clearRunAsIdentitiesInternal();
+        //调用SecurityManager.login方法实现登录
+        Subject subject = securityManager.login(this, token); 
+
+        PrincipalCollection principals;
+
+进入`DefaultSecurityManager.login`方法：
+
+    public Subject login(Subject subject, AuthenticationToken token) throws AuthenticationException {
+        AuthenticationInfo info;
+        try {
+            //调用authenticate方法进行登录验证
+            info = authenticate(token);
+    
+    
+    //authenticate方法
+    public AuthenticationInfo authenticate(AuthenticationToken token) throws AuthenticationException {
+        //调用Authenticator实例的authenticate方法
+        return this.authenticator.authenticate(token);
+    }
+    
+我们在`spring-shiro.xml`中声明的`JtisRealmAuthenticator`继承自`AbstractAuthenticator`，因此进入到`AbstractAuthenticator`中：
+
+    //核心代码
+    AuthenticationInfo info;
+    //验证token，并获取AuthenticationInfo对象
+    info = doAuthenticate(token);
+
+这会转到我们自己定义的`Authenticator`中：
+
+    protected AuthenticationInfo doAuthenticate(AuthenticationToken authenticationToken)
+        throws AuthenticationException {
+        try {
+            assertRealmsConfigured();
+            JtisToken jtisToken = (JtisToken) authenticationToken;
+            String loginType = jtisToken.getLoginType();
+            
+            //(1)获取相关Realm实例集合
+            Collection<Realm> allRealms = getRealms();
+            for (Realm realm : allRealms) {
+
+                Field field = realm.getClass().getDeclaredField(JtisToken.LOGIN_TYPE);
+                field.setAccessible(true);
+                Object value = field.get(realm);
+                if (value != null && value.equals(loginType)) {
+                    //(2)调用doSingleRealmAuthentication方法进行验证
+                    return this.doSingleRealmAuthentication(realm, authenticationToken);
+                }
+            }
+        } catch (Exception e) {
+            LOGGER.error("doAuthenticate() : {}", e);
+            e.printStackTrace();
+        }
+        return null;
+    }
+
+（1）`getRealms()`方法返回了`Authenticator`实例内部的`Realm`实例集合
+
+首先看一下`SecurityManager`的配置：
+
+    <bean id="securityManager" class="org.apache.shiro.web.mgt.DefaultWebSecurityManager">
+        <property name="sessionManager" ref="sessionManager"/>
+        <property name="cacheManager" ref="cacheManager"/>
+        <property name="authenticator" ref="jtisRealmAuthenticator"/>
+        <property name="authorizer" ref="jtisRealmAuthorizer"/>
+        //设置realms属性
+        <property name="realms">
+            <list>
+                <ref bean="oasystemRealm"/>
+                <ref bean="portalRealm"/>
+                <ref bean="weightRealm"/>
+            </list>
+        </property>
+    </bean>
+
+进入`RealmSecurityManager.setRealms`方法：
+
+    public void setRealms(Collection<Realm> realms) {
+        if (realms == null) {
+            throw new IllegalArgumentException("Realms collection argument cannot be null.");
+        }
+        if (realms.isEmpty()) {
+            throw new IllegalArgumentException("Realms collection argument cannot be empty.");
+        }
+        this.realms = realms;
+        //调用afterRealmSet方法，跳转到子类覆盖方法
+        afterRealmsSet();
+    }
+
+`AuthorizingSecurityManager.afterRealmSet`方法：
+
+    protected void afterRealmsSet() {
+        //继续调用super.afterRealmSet
+        super.afterRealmsSet();
+        //如果authorizer属性是ModularRealmAuthorizer实例，设置其realms属性，我们自己定义的Authorizer bean就可以设置其realms属性
+        if (this.authorizer instanceof ModularRealmAuthorizer) {
+            ((ModularRealmAuthorizer) this.authorizer).setRealms(getRealms());
+        }
+    }
+
+`AuthenticatingSecurityManager.afterRealmSet`方法：
+
+    protected void afterRealmsSet() {
+        //继续调用父类方法
+        super.afterRealmsSet();
+        //如果authenticator是ModularRealmAuthenticator实例，那么设置其realms属性
+        if (this.authenticator instanceof ModularRealmAuthenticator) {
+            ((ModularRealmAuthenticator) this.authenticator).setRealms(getRealms());
+        }
+    }
+
+这样就可以通过`getRealms`方法获取`Authenticator`相关`Realm`实例集合了
+
+（2）`doSingleRealmAuthentication`核心代码片段，位于其父类`ModularRealmAuthenticator`中：
+
+    AuthenticationInfo info = realm.getAuthenticationInfo(token);
+
+这里简单介绍下`ModularRealmAuthenticator`，它可以配置多个插入式的`Realm`，内部提供了`setRealms`方法来设置相关`Realm`，其验证方法：
+    
+    //存在多个Realm就调用doMultiRealmAuthentication，否则调用doSingleRealmAuthentication
+    protected AuthenticationInfo doAuthenticate(AuthenticationToken authenticationToken) throws AuthenticationException {
+        assertRealmsConfigured();
+        Collection<Realm> realms = getRealms();
+        if (realms.size() == 1) {
+            return doSingleRealmAuthentication(realms.iterator().next(), authenticationToken);
+        } else {
+            return doMultiRealmAuthentication(realms, authenticationToken);
+        }
+    }
+
+继续`Realm.getAuthenticationInfo`方法，这里将会从`Realm`实例中获取用户信息：
+
+    public final AuthenticationInfo getAuthenticationInfo(AuthenticationToken token) throws AuthenticationException {
+
+        AuthenticationInfo info = getCachedAuthenticationInfo(token);
+        if (info == null) {
+            //otherwise not cached, perform the lookup:
+            //(1)调用子类doGetAuthenticationInfo，转到自己的实现类
+            info = doGetAuthenticationInfo(token);
+            log.debug("Looked up AuthenticationInfo [{}] from doGetAuthenticationInfo", info);
+            if (token != null && info != null) {
+                cacheAuthenticationInfoIfPossible(token, info);
+            }
+        } else {
+            log.debug("Using cached authentication info [{}] to perform credentials matching.", info);
+        }
+
+        if (info != null) {
+            //(2)密码校验
+            assertCredentialsMatch(token, info);
+        } else {
+            log.debug("No AuthenticationInfo found for submitted AuthenticationToken [{}].  Returning null.", token);
+        }
+
+        return info;
+    }
+
+（1）实现`doGetAuthenticationInfo`方法：
+    
+    //从db中获取用户信息，构造AuthenticationInfo实例
+    protected AuthenticationInfo doGetAuthenticationInfo(AuthenticationToken token)
+        throws AuthenticationException {
+        User user = userService.getUserBySysName((String) token.getPrincipal());
+
+        if (null == user || user.isInvalid()) {
+            throw new UnknownAccountException();
+        } else {
+            SimpleAuthenticationInfo authenticationInfo = new SimpleAuthenticationInfo(
+                    user.getSysName(), user.getPassword(),
+                    ByteSource.Util.bytes(generatePasswordSalt(user)), getName());
+            return authenticationInfo;
+        }
+    }
+
+（2）调用`CredentialsMatcher.doCredentialsMatch`方法验证密码，`shiro`提供了`HashedCredentialsMatcher`来进行哈希化匹配，代码中增加了密码重试限制功能`RetryLimitHashedCredentialsMatcher`：
+
+    public boolean doCredentialsMatch(AuthenticationToken token, AuthenticationInfo info) {
+        String username = (String) token.getPrincipal();
+
+        AtomicInteger retryCount = passwordRetryCache.get(username);
+        if (retryCount == null) {
+            retryCount = new AtomicInteger();
+            passwordRetryCache.put(username, retryCount);
+        }
+        if (retryCount.incrementAndGet() > SysConfigUtil.getPasswordRetries()) {
+            // retries exceed
+            throw new ExcessiveAttemptsException();
+        }
+
+        boolean matches = super.doCredentialsMatch(token, info);
+        if (matches) {
+            // clear retries
+            passwordRetryCache.remove(username);
+        }
+        return matches;
+    }
+
+
+**用户权限控制**
+
+首先请求先经过过滤器处理，例如我们自己会定义一个`JtisAuthorizationFilter`过滤器判断用户的访问权限，权限，**权限验证入口还是在Subject接口中**，例如`Subject`接口中定义了很多`isPermitted`方法，那么我们需要在自定义`JtisAuthorizationFilter`中实现访问权限控制逻辑，代码如下：
+    
+    //覆盖父类isAccessAllowed方法，判断登录用户是否有权限访问当前url
+    protected boolean isAccessAllowed(ServletRequest servletRequest,
+                                      ServletResponse servletResponse, Object o) throws Exception {
+        try {
+            Subject subject = getSubject(servletRequest, servletResponse);
+
+            HttpServletRequest httpServletRequest = (HttpServletRequest) servletRequest;
+            String url = httpServletRequest.getRequestURI();
+            String basePath = httpServletRequest.getContextPath();
+            if (null != url && url.startsWith(basePath)) {
+                url = url.replaceFirst(basePath, "");
+            }
+
+            if (!PermissionCache.singleton().findPermission(url)) {
+                return true;
+            } else {
+                //判断权限方法
+                return subject.isPermitted(url);
+            }
+        } catch (Exception e) {
+            LOGGER.error("isAccessAllowed() : {}", e);
+            e.printStackTrace();
+            throw e;
+        }
+    }
+
+`DelegatingSubject.isPermitted`方法：
+
+    public boolean isPermitted(String permission) {
+        return hasPrincipals() && securityManager.isPermitted(getPrincipals(), permission);
+    }
+
+`AuthorizingSecurityManager.isPermitted`方法：
+
+    public boolean isPermitted(PrincipalCollection principals, String permissionString) {
+        return this.authorizer.isPermitted(principals, permissionString);
+    }
+
+接着就要调用`Authorizer`的`isPermitted`方法，这里的`Authorizer`实例需要我们自己实现，例如我们在`JtisRealmAuthorizer`中实现：
+
+    public boolean isPermitted(PrincipalCollection principals, String permission) {
+        try {
+            assertRealmsConfigured();
+            Collection<Realm> realms = getRealms();
+
+            Set<String> realmNames = principals.getRealmNames();
+            for (String realmName : realmNames) {
+                for (Realm realm : realms) {
+                    //调用AuthorizingRealm.isPermitted方法
+                    if (realm.getName().equals(realmName) && realm instanceof Authorizer && ((Authorizer) realm)
+                            .isPermitted(principals, permission)) {
+                        return true;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            LOGGER.error("doAuthenticate() : {}", e);
+            e.printStackTrace();
+        }
+        return false;
+    }
+
+`AuthorizingRealm.isPermitted`方法：
+
+    public boolean isPermitted(PrincipalCollection principals, String permission) {
+        //getPermissionResolver默认返回WildcardPermissionResolver
+        Permission p = getPermissionResolver().resolvePermission(permission);
+        return isPermitted(principals, p);
+    }
+    
+    public boolean isPermitted(PrincipalCollection principals, Permission permission) {
+        //(1)调用getAuthorizingInfo方法获取权限信息
+        AuthorizationInfo info = getAuthorizationInfo(principals);
+        return isPermitted(permission, info);
+    }
+    
+    //用上面获取到的AuthorizationInfo验证
+    protected boolean isPermitted(Permission permission, AuthorizationInfo info) {
+        Collection<Permission> perms = getPermissions(info);
+        if (perms != null && !perms.isEmpty()) {
+            for (Permission perm : perms) {
+                if (perm.implies(permission)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+(1)`getAuthorizingInfo`方法，会首先从权限缓存中拿数据，如果没有从数据库中查并保存在缓存中：
+
+    protected AuthorizationInfo getAuthorizationInfo(PrincipalCollection principals) {
+
+        if (principals == null) {
+            return null;
+        }
+
+        AuthorizationInfo info = null;
+
+        if (log.isTraceEnabled()) {
+            log.trace("Retrieving AuthorizationInfo for principals [" + principals + "]");
+        }
+        //获取配置的缓存，我们在spring-shiro中给相关Realm配置了缓存，因此这里可以拿到Cache实例
+        Cache<Object, AuthorizationInfo> cache = getAvailableAuthorizationCache();
+        if (cache != null) {
+            if (log.isTraceEnabled()) {
+                log.trace("Attempting to retrieve the AuthorizationInfo from cache.");
+            }
+            //获取缓存key
+            Object key = getAuthorizationCacheKey(principals);
+            info = cache.get(key);
+            if (log.isTraceEnabled()) {
+                if (info == null) {
+                    log.trace("No AuthorizationInfo found in cache for principals [" + principals + "]");
+                } else {
+                    log.trace("AuthorizationInfo found in cache for principals [" + principals + "]");
+                }
+            }
+        }
+
+
+        if (info == null) {
+            //调用子类实现方法
+            info = doGetAuthorizationInfo(principals);
+            // If the info is not null and the cache has been created, then cache the authorization info.
+            if (info != null && cache != null) {
+                if (log.isTraceEnabled()) {
+                    log.trace("Caching authorization info for principals: [" + principals + "].");
+                }
+                Object key = getAuthorizationCacheKey(principals);
+                //更新缓存
+                cache.put(key, info);
+            }
+        }
+
+        return info;
+    }
+
+子类`OASystemUserRealm`实现的`doGetAuthorizationInfo`方法：
+
+    protected AuthorizationInfo doGetAuthorizationInfo(PrincipalCollection principalCollection) {
+        HashSet<String> permissionContents = new HashSet<String>();
+
+        String userName = (String) principalCollection.getPrimaryPrincipal();
+        //根据用户名查数据库获取权限信息
+        List<Permission> permissions = permissionService.getPermissionsByUserName(userName);
+        if (permissions != null && permissions.size() > 0) {
+            for (Permission permission : permissions) {
+                List<PermContent> contents = permission.getContents();
+
+                if (null != contents && contents.size() > 0) {
+                    for (PermContent content : contents) {
+                        if (null != content.getContent() && !content.getContent().isEmpty()) {
+                            permissionContents.add(content.getContent());
+                        }
+                    }
+                }
+            }
+        }
+        //返回AuthorizationInfo实例
+        SimpleAuthorizationInfo authorizationInfo = new SimpleAuthorizationInfo();
+        authorizationInfo.setStringPermissions(permissionContents);
+        return authorizationInfo;
+    }
+
+
 
   [1]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/shiro/shiro%E6%A1%86%E6%9E%B6%E6%A6%82%E8%BF%B0.PNG
   [2]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/shiro/shiro%E6%A1%86%E6%9E%B6.PNG

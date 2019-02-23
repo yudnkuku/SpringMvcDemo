@@ -4,7 +4,6 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.FsUrlStreamHandlerFactory;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.fs.TestDFSIO;
 import org.apache.hadoop.io.IOUtils;
 import org.junit.Test;
 
@@ -62,6 +61,6 @@ public class HadoopTest {
     @Test
     public void testPerformance() {
         String[] args = new String[]{"-write", "-nrFiles", "10", "-size", "10MB"};
-        TestDFSIO.main(args);
+//        TestDFSIO.main(args);
     }
 }

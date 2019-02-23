@@ -66,6 +66,8 @@
       <property name="username" value="${username}"/>
   <property name="password" value="${password}"/>
     </dataSource>
+    
+    
 `username`和`password`由`properties`元素中相应值替换，而`driver`和`url`将会由`config.properties`文件中对应的值来替换
 如果属性值不只在一个地方进行了配置，`MyBatis`将按照下面的顺序来加载：
 
@@ -140,7 +142,7 @@
 3.1 select
 ----------
 
-    <select id="selectPerson" parameterType="int" resultType="hashmap">
+    <select id="selectPerson" parameterType="int" resultType="hashmap"> 
         SELECT * FROM PERSON WHERE ID = #{id}
     </select>
 以上配置合如下`JDBC`代码实现相似的功能，`#{id}`表示查询参数，替代SQL语句中的"?"：
@@ -310,7 +312,7 @@ sql元素可以作为可重用的SQL代码片段，包含在其他语句中
     <resultMap id="blogResult" type="Blog">
       <id property="id" column="blog_id" />
       <result property="title" column="blog_title"/>
-      <association property="author" column="blog_author_id" javaType="Author" resultMap="authorResult"/>  <!--这里的column是B表的查询列名，并且还是连接查询的列，例如上述连接查询 B.author_id=A.id，连接查询列是B.author_id，实际映射到blog_author_id，因此这里的column=blog_column_id-->
+      <association property="author" column="blog_author_id" javaType="Author" resultMap="authorResult"/>  <!--这里的column是B表的查询列名，并且还是连接查询的列，例如上述连接查询 B.author_id=A.id，连接查询列是B.author_id，实际映射到blog_author_id，因此这里的column=blog_author_id-->
     </resultMap>
     
     <resultMap id="authorResult" type="Author">
@@ -501,11 +503,17 @@ sql元素可以作为可重用的SQL代码片段，包含在其他语句中
     <cache />
 
 声明`<cache>`元素后起到的效果如下：
+
 1、映射语句文件中的所有`select`语句将会被缓存
+
 2、映射语句文件中的所有`insert/update/delete`语句会刷新缓存
+
 3、缓存会使用`Least Recently Used`(`LRU`最近最少使用的)算法来回收
+
 4、根据时间表(比如`no Flush Interval`没有刷新间隔)，缓存不会以任何时间顺序来刷新
+
 5、缓存会存储列表集合或者对象(无论查询方法返回什么)的1024个引用
+
 6、缓存会被视为`read/write`的缓存，意味着对象检索不是共享的，而且可以安全地被调用者修改，而不干扰其他调用者或者线程所做的潜在修改。
 
 只需要在`Mapper`定义中声明`cache`元素，它会自动使用默认值构建`Cache`：
@@ -576,6 +584,10 @@ sql元素可以作为可重用的SQL代码片段，包含在其他语句中
 
     select * from user order by age
     
+3、`resultType`
+
+从这条语句中返回的期望类型的类的完全限定名或者别名，注意如果是集合情形，那么应该是集合包含的类型，而不能是集合本身
+    
 **实际应用**
 
     <select id="selectUserInfoByMixed" parameterType="map" resultType="com.cckj.bean.UserInfo">
@@ -635,7 +647,7 @@ sql元素可以作为可重用的SQL代码片段，包含在其他语句中
 
 2、`MyBatis`工作原理
 
-`mybatis`通过配置文件创建`sqlsessionFactory`，`sqlsessionFactory`根据配置文件，配置文件来源于两个方面:一个是`xml`，一个是`Java`中的注解，获取`sqlSession`。**`SqlSession`包含了执行`sql`语句的所有方法**，可以通过`SqlSession`直接运行映射的`sql`语句，完成对数据的增删改查(`select/insert/update/delete`)和事务的提交(`commit`)工作，用完之后关闭`SqlSession`。 
+`mybatis`通过配置文件创建`sqlsessionFactory`，`SqlSessionFactoryBuilder`根据配置文件构建`Configuration`对象并生成`SqlSessionFactory`实例，配置文件来源于两个方面:一个是`xml`，一个是`Java`中的注解(例如解析`typeHandlers`元素时会找`TypeHandler`是否有`MappedTypes`和`MappedJdbcTypes`注解)，通过调用`SqlSessionFactory.openSession`方法获取`sqlSession`。**`SqlSession`包含了执行`sql`语句的所有方法**，可以通过`SqlSession`直接运行映射的`sql`语句，完成对数据的增删改查(`select/insert/update/delete`)和事务的提交(`commit`)工作，用完之后关闭`SqlSession`。 
 
 `MyBatis`是基于`jdk`动态代理的(基于接口，接口就是`DAO`接口)，因此在执行`DAO`接口的方法时，会触发代理类`MapperProxy`的方法调用(该代理类实现了`InvocationHandler`接口，这个接口在`jdk`动态代理中常用，`Proxy.newProxtInstance(classLoader, Class[]{}, InvocationHandler)`用于构造代理对象)，由于动态代理，会继续调用`InvocationHandler`实例的`invoke()`方法，查看源码，`invoke()`方法内部实际上调用了`sqlSession`实例的方法(看来最终还是回到了`sql`语句的执行)，执行对应的`sql`语句，因此说白了就是调用`DAO`方法最后还是执行了对应的`sql`语句(具体源码可以查看`MapperProxy`，参考`mybatis`源码解析)，可以看出`MyBatis`框架同样只声明了`DAO`接口，没有具体的实现类，这和`Spring Data JPA`有点类似，在项目实际运行时，`MyBatis`框架实际上利用了`JDK`动态代理策略将`DAO`接口的方法调用交给代理类执行，最后落脚到`sql`语句的执行，实现数据库相关的操作。
 

@@ -259,7 +259,7 @@
 ## 双亲委派模型 ##
 
  - 启动类加载器(`Bootstrap ClassLoader`)：这个类加载器负责加载`%JAVA_HOME%/lib`目录下的类，使用`c++`语言辨析
- - 扩展类加载器(`Extension ClassLoader`)：这个类加载器由`sun.misc.Launcher$ExtClassLoader`实现，它负责加载`%JAVA_HOME/lib/ext%`目录中的类，或者被`java.ext.dirs`系统变量所指定的路径中的所有类库
+ - 扩展类加载器(`Extension ClassLoader`)：这个类加载器由`sun.misc.Launcher$ExtClassLoader`实现，它负责加载`%JAVA_HOME%/lib/ext`目录中的类，或者被`java.ext.dirs`系统变量所指定的路径中的所有类库
  - 应用程序类加载器(`Application ClassLoader`)：这个类加载器是由`sun.misc.Launcher$AppClassLoader`实现，由于这个类是`ClassLoader`中的`getSystemClassLoader()`的返回值，所以一般认为它是系统类加载器，它负责加载用户类路径(`ClassPath`)上所指定的类库。
  
 双亲委派模型描述了类加载器之间的层级关系，其基本流程就是：如果一个类加载器收到类加载的请求，它不会自己尝试加载，而是向上委托给父类加载器完成，每一层次的类加载器都是如此，因此所有的类加载请求最终都会传送到顶层的启动类加载器中，只有当父类加载器无法完成类加载时，才会由子类加载器去加载。
