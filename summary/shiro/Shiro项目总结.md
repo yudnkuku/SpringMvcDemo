@@ -953,7 +953,7 @@
 
 **用户权限控制**
 
-首先请求先经过过滤器处理，例如我们自己会定义一个`JtisAuthorizationFilter`过滤器判断用户的访问权限，权限，**权限验证入口还是在Subject接口中**，例如`Subject`接口中定义了很多`isPermitted`方法，那么我们需要在自定义`JtisAuthorizationFilter`中实现访问权限控制逻辑，代码如下：
+首先请求先经过过滤器处理，例如我们自己会定义一个`JtisAuthorizationFilter`过滤器判断用户的访问权限，**权限验证入口还是在Subject接口中**，例如`Subject`接口中定义了很多`isPermitted`方法，那么我们需要在自定义`JtisAuthorizationFilter`中实现访问权限控制逻辑，代码如下：
     
     //覆盖父类isAccessAllowed方法，判断登录用户是否有权限访问当前url
     protected boolean isAccessAllowed(ServletRequest servletRequest,
@@ -1121,7 +1121,631 @@
     }
 
 
+**Shiro过滤拦截机制**
+
+**1、注册过滤器和过滤器链**
+
+首先看一下项目中过滤器的配置：
+
+    <!-- Authentication Filter -->
+    <bean id="jtisAuthenticationFilter" class="com.fiberhome.jtis.server.jtis.security.JtisAuthenticationFilter">
+        <property name="loginUrl" value="/index.html"/>
+    </bean>
+    <!-- Permission Filter -->
+    <bean id="jtisPermissionFilter" class="com.fiberhome.jtis.server.jtis.security.JtisAuthorizationFilter">
+        <property name="loginUrl" value="/index.html"/>
+    </bean>
+
+将上述两个`Filter bean`注册到`ShiroFilterFactoryBean`中：
+
+    <bean id="shiroFilter" class="org.apache.shiro.spring.web.ShiroFilterFactoryBean">
+        <property name="filters">
+            <util:map>
+                <entry key="jtisauthc" value-ref="jtisAuthenticationFilter"/>
+                <entry key="jtisperm" value-ref="jtisPermissionFilter"/>
+            </util:map>
+        </property>
+        <property name="filterChainDefinitions">
+            <value>
+                /user/logout = jtisauthc
+                /** = jtisauthc,jtisperm
+            </value>
+        </property>
+    </bean>
+
+可以看到`ShiroFilterFactoryBean`配置了两个属性`filters`和`filterChainDefinitions`，看下两个属性的定义：
+    //filters属性，key=过滤器名称，value=Filter实例
+    private Map<String, Filter> filters;
+    
+    //filterChainDefinitionMap，key=url,value=逗号分割的过滤器链定义
+    private Map<String, String> filterChainDefinitionMap; //urlPathExpression_to_comma-delimited-filter-chain-definition
+    
+例如上面的两个过滤器会添加到`filters`属性中，`jtisauthenc -> jtisAuthenticationFilter`,`jtisperm -> jtisPermissionFilter`，过滤器链定义`/** = jtisauthc,jtisperm`会添加到`filterChainDefinitions`属性中变成`/** -> jtisauthc,jtisperm`
+
+**2、过滤器拦截原理**
+
+`ShiroFilterFactoryBean`是一个`FactoryBean`实例，其`getObject`方法返回的实例才是真正用到的`bean`，前面已经介绍了其返回的实例类型，就是`ShiroFilterFactoryBean$SpringShiroFilter`，看一下`SpringShiroFilter`的构造方法：
+
+    protected SpringShiroFilter(WebSecurityManager webSecurityManager, FilterChainResolver resolver) {
+            super();
+            if (webSecurityManager == null) {
+                throw new IllegalArgumentException("WebSecurityManager property cannot be null.");
+            }
+            setSecurityManager(webSecurityManager);
+            if (resolver != null) {
+                setFilterChainResolver(resolver);
+            }
+        }
+
+构造方法设置两个成员属性`WebSecurityManager`和`FilterChainResolver`，前者是通过配置文件注入，后者是在`createInstance`方法中构造的`PathMatchingFilterChainResolver`实例，代码片段：
+
+    PathMatchingFilterChainResolver chainResolver = new PathMatchingFilterChainResolver();
+        chainResolver.setFilterChainManager(manager);
+
+再看一下`SpringShiroFilter`的类图：
+
+![SpringShiroFilter类图][4]
+
+其`doFilter`方法在`OncePerRequestFilter`中实现，根据过滤器的名字可以看出如果请求处理过，那么不再处理该请求，看下代码：
+
+    public final void doFilter(ServletRequest request, ServletResponse response, FilterChain filterChain)
+            throws ServletException, IOException {
+        //获取属性名称，过滤器名字+.FILTERED
+        String alreadyFilteredAttributeName = getAlreadyFilteredAttributeName();
+        if ( request.getAttribute(alreadyFilteredAttributeName) != null ) {
+            //如果请求中有该属性值，那么会交给下一个过滤器处理
+            log.trace("Filter '{}' already executed.  Proceeding without invoking this filter.", getName());
+            filterChain.doFilter(request, response);
+        } else //noinspection deprecation
+            if (/* added in 1.2: */ !isEnabled(request, response) ||
+                /* retain backwards compatibility: */ shouldNotFilter(request) ) {
+            log.debug("Filter '{}' is not enabled for the current request.  Proceeding without invoking this filter.",
+                    getName());
+            filterChain.doFilter(request, response);
+        } else {
+            // Do invoke this filter...
+            log.trace("Filter '{}' not yet executed.  Executing now.", getName());
+            //设置请求属性
+            request.setAttribute(alreadyFilteredAttributeName, Boolean.TRUE);
+
+            try {
+                //调用doFilterInternal处理
+                doFilterInternal(request, response, filterChain);
+            } finally {
+                // Once the request has finished, we're done and we don't
+                // need to mark as 'already filtered' any more.
+                //移除请求属性
+                request.removeAttribute(alreadyFilteredAttributeName);
+            }
+        }
+    }
+
+`doFilterInternal`方法在`AbstractShiroFilter`中实现：
+
+    protected void doFilterInternal(ServletRequest servletRequest, ServletResponse servletResponse, final FilterChain chain)
+            throws ServletException, IOException {
+
+        Throwable t = null;
+
+        try {
+            final ServletRequest request = prepareServletRequest(servletRequest, servletResponse, chain);
+            final ServletResponse response = prepareServletResponse(request, servletResponse, chain);
+
+            final Subject subject = createSubject(request, response);
+
+            //noinspection unchecked
+            subject.execute(new Callable() {
+                public Object call() throws Exception {
+                    updateSessionLastAccessTime(request, response);
+                    //执行过滤链
+                    executeChain(request, response, chain);
+                    return null;
+                }
+            });
+        }
+
+`executeChain`方法：
+
+    protected void executeChain(ServletRequest request, ServletResponse response, FilterChain origChain)
+            throws IOException, ServletException {
+        FilterChain chain = getExecutionChain(request, response, origChain);
+        chain.doFilter(request, response);
+    }
+
+`getExecutionChain`方法获取过滤链：
+
+    protected FilterChain getExecutionChain(ServletRequest request, ServletResponse response, FilterChain origChain) {
+        FilterChain chain = origChain;
+        
+        //获取过滤链解析器，这里是PathMatchingFilterChainResolver
+        FilterChainResolver resolver = getFilterChainResolver();
+        if (resolver == null) {
+            log.debug("No FilterChainResolver configured.  Returning original FilterChain.");
+            return origChain;
+        }
+        //获取请求对应的过滤链
+        FilterChain resolved = resolver.getChain(request, response, origChain);
+        if (resolved != null) {
+            log.trace("Resolved a configured FilterChain for the current request.");
+            chain = resolved;
+        } else {
+            log.trace("No FilterChain configured for the current request.  Using the default.");
+        }
+
+        return chain;
+    }
+
+`PathMatchingFilterChainResolver.getChain`方法：
+
+    public FilterChain getChain(ServletRequest request, ServletResponse response, FilterChain originalChain) {
+        //获取FilterChainManager，这里是DefaultFilterChainManager实例，DefaultFilterChainManager管理着所有的Filter和FilterChain
+        FilterChainManager filterChainManager = getFilterChainManager();
+        if (!filterChainManager.hasChains()) {
+            return null;
+        }
+
+        String requestURI = getPathWithinApplication(request);
+        //遍历所有过滤器链，每个过滤器链的名字就是其对应的url
+        for (String pathPattern : filterChainManager.getChainNames()) {
+            
+            //如果请求uri和过滤器链名称对应(url)，那么久调用DefaultFilterChainManager.proxy方法生成FilterChain实例
+            if (pathMatches(pathPattern, requestURI)) {
+                if (log.isTraceEnabled()) {
+                    log.trace("Matched path pattern [" + pathPattern + "] for requestURI [" + requestURI + "].  " +
+                            "Utilizing corresponding filter chain...");
+                }
+                return filterChainManager.proxy(originalChain, pathPattern);
+            }
+        }
+
+        return null;
+    }
+
+`DefaultFilterChainManager.proxy`方法：
+
+    public FilterChain proxy(FilterChain original, String chainName) {
+        NamedFilterList configured = getChain(chainName);
+        if (configured == null) {
+            String msg = "There is no configured chain under the name/key [" + chainName + "].";
+            throw new IllegalArgumentException(msg);
+        }
+        return configured.proxy(original);
+    }
+    
+`SimpleNamedFilterList.proxy`方法：
+
+    public FilterChain proxy(FilterChain orig) {
+        return new ProxiedFilterChain(orig, this);
+    }
+
+
+最后看一下`ProxiedFilterChain`的全貌：
+
+    public class ProxiedFilterChain implements FilterChain {
+
+    //TODO - complete JavaDoc
+
+    private static final Logger log = LoggerFactory.getLogger(ProxiedFilterChain.class);
+    //原始过滤器链
+    private FilterChain orig;
+    //Shiro配置的过滤器列表
+    private List<Filter> filters;
+    private int index = 0;
+
+    public ProxiedFilterChain(FilterChain orig, List<Filter> filters) {
+        if (orig == null) {
+            throw new NullPointerException("original FilterChain cannot be null.");
+        }
+        this.orig = orig;
+        this.filters = filters;
+        this.index = 0;
+    }
+    
+    //其内部实现的doFilter方法，方法很简单，实际上也是将请求代理给其内部的filter，首先会调用shiro配置的filter的foFilter方法处理请求，再调用原始过滤器链
+    public void doFilter(ServletRequest request, ServletResponse response) throws IOException, ServletException {
+        if (this.filters == null || this.filters.size() == this.index) {
+            //we've reached the end of the wrapped chain, so invoke the original one:
+            if (log.isTraceEnabled()) {
+                log.trace("Invoking original filter chain.");
+            }
+            this.orig.doFilter(request, response);
+        } else {
+            if (log.isTraceEnabled()) {
+                log.trace("Invoking wrapped filter at index [" + this.index + "]");
+            }
+            this.filters.get(this.index++).doFilter(request, response, this);
+        }
+    }
+}
+
+返回到`AbstractShiroFilter.executeChain`：
+
+    protected void executeChain(ServletRequest request, ServletResponse response, FilterChain origChain)
+            throws IOException, ServletException {
+        FilterChain chain = getExecutionChain(request, response, origChain);
+        chain.doFilter(request, response);
+    }
+
+那么这里的`chain`就是`ProxiedFilterChain`实例。
+
+接下来就看一下自己实现的过滤器，下面是`JtisAuthenticationFilter`的类图
+
+![JtisAuthenticationFilter类图][5]
+
+这比`SpringShiroFilter`更加复杂，不过其具有共同的父类`OncePerRequestFilter`，因此过滤器方法还是从`OncePerRequestFilter.doFilter`进入，只是`doFilterInternal`就不同了，具体实现在`AdviceFilter`中，看名字就带有切面的思想：
+
+    public void doFilterInternal(ServletRequest request, ServletResponse response, FilterChain chain)
+            throws ServletException, IOException {
+
+        Exception exception = null;
+
+        try {
+            //调用preHandler方法，判断是否需要继续执行过滤器链，如果请求被拒绝那么直接跳过过滤链执行
+            boolean continueChain = preHandle(request, response);
+            if (log.isTraceEnabled()) {
+                log.trace("Invoked preHandle method.  Continuing chain?: [" + continueChain + "]");
+            }
+
+            if (continueChain) {
+                executeChain(request, response, chain);
+            }
+
+            postHandle(request, response);
+            if (log.isTraceEnabled()) {
+                log.trace("Successfully invoked postHandle method");
+            }
+
+        } catch (Exception e) {
+            exception = e;
+        } finally {
+            cleanup(request, response, exception);
+        }
+    }
+
+`preHandler`在子类`PathMatchingFilter`中实现：
+
+    protected boolean preHandle(ServletRequest request, ServletResponse response) throws Exception {
+
+        if (this.appliedPaths == null || this.appliedPaths.isEmpty()) {
+            if (log.isTraceEnabled()) {
+                log.trace("appliedPaths property is null or empty.  This Filter will passthrough immediately.");
+            }
+            return true;
+        }
+        //appliedPaths保存了过滤器url到config之间的映射，因为在配置文件中可以这样定义规则： /** = filter1[config], filter2[config]，那么filter1中的appliedPaths就保存了 /** 到 config的映射，filter2中的appliedPaths就保存了 /** 到 config的映射
+        for (String path : this.appliedPaths.keySet()) {
+            // If the path does match, then pass on to the subclass implementation for specific checks
+            //(first match 'wins'):
+            if (pathsMatch(path, request)) {
+                log.trace("Current requestURI matches pattern '{}'.  Determining filter chain execution...", path);
+                Object config = this.appliedPaths.get(path);
+                //调用idFilterChainContinued方法
+                return isFilterChainContinued(request, response, path, config);
+            }
+        }
+
+        //no path matched, allow the request to go through:
+        return true;
+    }
+    
+    private boolean isFilterChainContinued(ServletRequest request, ServletResponse response, String path, Object pathConfig) throws Exception {
+        //调用onPreHandler方法
+        return onPreHandle(request, response, pathConfig);
+    }
+
+在子类`AccessControlFilter`中实现`onPreHandler`方法：
+    
+    //返回isAccessAllowed || onAccessDenied
+    public boolean onPreHandle(ServletRequest request, ServletResponse response, Object mappedValue) throws Exception {
+        //(1)isAccessAllowed  (2)onAccessDenied
+        return isAccessAllowed(request, response, mappedValue) || onAccessDenied(request, response, mappedValue);
+    }
+
+(1)`isAccessAllowed`会调用子类`AuthenticatingFilter`的实现：
+    
+    //调用父类isAccessAllowed方法判断是否有权限，如果有直接返回true，否则判断是否是登录请求，如果是直接方法true，否则返回该请求是否被允许
+    protected boolean isAccessAllowed(ServletRequest request, ServletResponse response, Object mappedValue) {
+        return super.isAccessAllowed(request, response, mappedValue) ||
+                (!isLoginRequest(request, response) && isPermissive(mappedValue));
+    }
+    
+继续调用父类`AuthenticationFilter.isAccessAllowed`方法：
+    
+    //在Subject.login方法中如果登录成功，那么该Subject的authenticated会被置为true
+    protected boolean isAccessAllowed(ServletRequest request, ServletResponse response, Object mappedValue) {
+        Subject subject = getSubject(request, response);
+        return subject.isAuthenticated();
+    }
+
+(2)如果`isAccessAllowed`返回`false`，表示用户可能没有登录，那么会继续调用`onAccessDenied`方法处理，这个方法有多种实现，对于`JtisAuthenticationFilter`其实现在父类`FormAuthenticationFilter`中：
+
+    protected boolean onAccessDenied(ServletRequest request, ServletResponse response) throws Exception {
+        //如果是登录请求
+        if (isLoginRequest(request, response)) {
+            //如果是登录提交请求
+            if (isLoginSubmission(request, response)) {
+                if (log.isTraceEnabled()) {
+                    log.trace("Login submission detected.  Attempting to execute login.");
+                }
+                //执行登录，返回登录结果，如果登录失败则返回fasle，这个过滤器连处理结束
+                return executeLogin(request, response);
+            } else {
+                if (log.isTraceEnabled()) {
+                    log.trace("Login page view.");
+                }
+                //allow them to see the login page ;)
+                return true;
+            }
+        } else {
+            //如果不是登录请求，那么302到登录界面，并返回false，结束过滤器链处理
+            if (log.isTraceEnabled()) {
+                log.trace("Attempting to access a path which requires authentication.  Forwarding to the " +
+                        "Authentication url [" + getLoginUrl() + "]");
+            }
+
+            saveRequestAndRedirectToLogin(request, response);
+            return false;
+        }
+    }
+
+下面是`JtisAuthorizationFilter`的类图：
+
+![JtisAuthorizationFilter类图][6]
+
+其内部实现的`isAccessAllowed`方法：
+
+    protected boolean isAccessAllowed(ServletRequest servletRequest,
+                                      ServletResponse servletResponse, Object o) throws Exception {
+        try {
+            Subject subject = getSubject(servletRequest, servletResponse);
+
+            HttpServletRequest httpServletRequest = (HttpServletRequest) servletRequest;
+            String url = httpServletRequest.getRequestURI();
+            String basePath = httpServletRequest.getContextPath();
+            if (null != url && url.startsWith(basePath)) {
+                url = url.replaceFirst(basePath, "");
+            }
+
+            if (!PermissionCache.singleton().findPermission(url)) {
+                return true;
+            } else {
+                //实际上还是调用Subject.isPermitted方法进行权限验证
+                return subject.isPermitted(url);
+            }
+        } catch (Exception e) {
+            LOGGER.error("isAccessAllowed() : {}", e);
+            e.printStackTrace();
+            throw e;
+        }
+    }
+
+再看看其父类`AuthorizationFilter`中实现的`onAccessDenied`方法：
+
+    protected boolean onAccessDenied(ServletRequest request, ServletResponse response) throws IOException {
+
+        Subject subject = getSubject(request, response);
+        // If the subject isn't identified, redirect to login URL
+        //如果subject没有鉴别身份，保存当前请求
+        if (subject.getPrincipal() == null) {
+            saveRequestAndRedirectToLogin(request, response);
+        } else {
+            // If subject is known but not authorized, redirect to the unauthorized URL if there is one
+            // If no unauthorized URL is specified, just return an unauthorized HTTP status code    
+            //否则，如果subject鉴别了身份但是没有授权，那么重定向到unauthorizedUrl或者直接返回401响应码
+            String unauthorizedUrl = getUnauthorizedUrl();
+            //SHIRO-142 - ensure that redirect _or_ error code occurs - both cannot happen due to response commit:
+            if (StringUtils.hasText(unauthorizedUrl)) {
+                WebUtils.issueRedirect(request, response, unauthorizedUrl);
+            } else {
+                WebUtils.toHttp(response).sendError(HttpServletResponse.SC_UNAUTHORIZED);
+            }
+        }
+        return false;
+    }
+
+**Subject**
+
+最开始创建`Subject`实例代码，在`AbstractShiroFilter`的`doFilterInternal`方法中：
+
+    protected void doFilterInternal(ServletRequest servletRequest, ServletResponse servletResponse, final FilterChain chain)
+            throws ServletException, IOException {
+
+        Throwable t = null;
+
+        try {
+            final ServletRequest request = prepareServletRequest(servletRequest, servletResponse, chain);
+            final ServletResponse response = prepareServletResponse(request, servletResponse, chain);
+            //(1)创建了一个新的subject
+            final Subject subject = createSubject(request, response);
+
+            //(2)执行Callable任务
+            subject.execute(new Callable() {
+                public Object call() throws Exception {
+                    updateSessionLastAccessTime(request, response);
+                    executeChain(request, response, chain);
+                    return null;
+                }
+            });
+        } catch (ExecutionException ex) {
+            t = ex.getCause();
+        } catch (Throwable throwable) {
+            t = throwable;
+        }
+
+        if (t != null) {
+            if (t instanceof ServletException) {
+                throw (ServletException) t;
+            }
+            if (t instanceof IOException) {
+                throw (IOException) t;
+            }
+            //otherwise it's not one of the two exceptions expected by the filter method signature - wrap it in one:
+            String msg = "Filtered request failed.";
+            throw new ServletException(msg, t);
+        }
+    }
+
+(1)`createSubject`方法：
+
+    protected WebSubject createSubject(ServletRequest request, ServletResponse response) {
+        return new WebSubject.Builder(getSecurityManager(), request, response).buildWebSubject();
+    }
+    
+`Subject$Builder.buildObject`方法：
+
+    public Subject buildSubject() {
+            return this.securityManager.createSubject(this.subjectContext);
+        }
+
+(2)创建完`Subject`实例之后，会调用其`execute`方法执行`Callable`任务
+
+    public <V> V execute(Callable<V> callable) throws ExecutionException {
+        //
+        Callable<V> associated = associateWith(callable);
+        try {
+            return associated.call();
+        } catch (Throwable t) {
+            throw new ExecutionException(t);
+        }
+    }
+
+`associatedWith`方法，这个方法就是将`Callable`任务 和`Subject`绑定，构造`SubjectCallable`实例，`Subject`和线程的关系是怎么样的呢，这里可以看一下`ThreadContext`类，其中有个成员变量`resources`，它的类型是`ThreadLocal`：
+
+    private static final ThreadLocal<Map<Object, Object>> resources = new InheritableThreadLocalMap<Map<Object, Object>>();
+    
+绑定`Subject`方法：
+
+    public static void bind(Subject subject) {
+        if (subject != null) {
+            put(SUBJECT_KEY, subject);
+        }
+    }
+    
+绑定`SecurityManager`方法：
+
+    public static void bind(SecurityManager securityManager) {
+        if (securityManager != null) {
+            put(SECURITY_MANAGER_KEY, securityManager);
+        }
+    }
+
+`SubjectCallable`:
+
+    public class SubjectCallable<V> implements Callable<V> {
+    
+    //ThreadState成员变量
+    protected final ThreadState threadState;
+    private final Callable<V> callable;
+
+    public SubjectCallable(Subject subject, Callable<V> delegate) {
+        //传入SubjectThreadState
+        this(new SubjectThreadState(subject), delegate);
+    }
+
+    protected SubjectCallable(ThreadState threadState, Callable<V> delegate) {
+        if (threadState == null) {
+            throw new IllegalArgumentException("ThreadState argument cannot be null.");
+        }
+        this.threadState = threadState;
+        if (delegate == null) {
+            throw new IllegalArgumentException("Callable delegate instance cannot be null.");
+        }
+        this.callable = delegate;
+    }
+    
+    //call实现，三步：bind/call/restore
+    public V call() throws Exception {
+        try {
+            //(1)将当前Subject设置为线程私有
+            threadState.bind();
+            //(2)执行任务
+            return doCall(this.callable);
+        } finally {
+            //(3)恢复执行任务前的状态
+            threadState.restore();
+        }
+    }
+
+    protected V doCall(Callable<V> target) throws Exception {
+        return target.call();
+    }
+}
+
+(1)`ThreadState.bind`，此方法将当前`Subject`与当前线程绑定：
+
+    public void bind() {
+        SecurityManager securityManager = this.securityManager;
+        if ( securityManager == null ) {
+            //try just in case the constructor didn't find one at the time:
+            securityManager = ThreadContext.getSecurityManager();
+        }
+        //先保存原始的资源，便于后面的restore
+        this.originalResources = ThreadContext.getResources();
+        //清除当前线程相关内容
+        ThreadContext.remove();
+        //重新绑定当前Subject到当前线程
+        ThreadContext.bind(this.subject);
+        if (securityManager != null) {
+            ThreadContext.bind(securityManager);
+        }
+    }
+
+`ThreadContext.bind`方法：
+
+    public static void bind(Subject subject) {
+        if (subject != null) {
+            put(SUBJECT_KEY, subject);
+        }
+    }
+    
+    public static void put(Object key, Object value) {
+        if (key == null) {
+            throw new IllegalArgumentException("key cannot be null");
+        }
+
+        if (value == null) {
+            remove(key);
+            return;
+        }
+        //确定初始化了，这里的resources就是ThreadLocal类型，存储了线程私有的变量
+        ensureResourcesInitialized();
+        //更新当前线程的私有变量
+        resources.get().put(key, value);
+    }
+
+（2）`doCall`，直接调用`call`方法:
+
+    protected V doCall(Callable<V> target) throws Exception {
+        return target.call();
+    }
+
+(3)`ThreadState.restore`方法，用来恢复`Callable`任务调用之前的状态：
+
+    public void restore() {
+        //清除调用之后的修改
+        ThreadContext.remove();
+        if (!CollectionUtils.isEmpty(this.originalResources)) {
+            //恢复
+            ThreadContext.setResources(this.originalResources);
+        }
+    }
+
+说到这里，再回头看一下为什么每次调用`SecurityUtils.getSubject`就能获取当前线程对应的`Subject`呢：
+    
+    //实际上也是用过ThreadContext获取Subject，这个Subject都是和线程相关的，每个线程都会有自己的Subject实例，这实际上又是ThreadLocal的一个典型应用
+    public static Subject getSubject() {
+        Subject subject = ThreadContext.getSubject();
+        if (subject == null) {
+            subject = (new Subject.Builder()).buildSubject();
+            ThreadContext.bind(subject);
+        }
+        return subject;
+    }
+
 
   [1]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/shiro/shiro%E6%A1%86%E6%9E%B6%E6%A6%82%E8%BF%B0.PNG
   [2]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/shiro/shiro%E6%A1%86%E6%9E%B6.PNG
   [3]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/shiro/shiro%E6%B5%81%E7%A8%8B.PNG
+  [4]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/shiro/SpringShiroFilter.png
+  [5]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/shiro/JtisAuthenticationFilter.png
+  [6]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/shiro/JtisAuthorizationFilter.png
