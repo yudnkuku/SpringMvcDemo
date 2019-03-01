@@ -369,7 +369,7 @@
 
     private DefaultChannelHandlerContext findContextInbound(int mask) {
         DefaultChannelHandlerContext ctx = this;
-        //从head节点往后遍历，直到ChannelHandlerContext的skipFlags&mask != 0
+        //从head节点往后遍历，直到ChannelHandlerContext的skipFlags&mask == 0
         do {
             ctx = ctx.next;
         } while ((ctx.skipFlags & mask) != 0);
@@ -553,7 +553,7 @@
      .channel(NioServerSocketChannel.class)
      ...
 
-上述代码就是一个典型的单线程模型，即`acceptro`处理和`handler`处理都在同一个线程中进行。
+上述代码就是一个典型的单线程模型，即`acceptor`处理和`handler`处理都在同一个线程中进行。
     
     //实际上设置了parentGroup=childGroup
     public ServerBootstrap group(EventLoopGroup group) {
@@ -588,7 +588,7 @@
 ## 线程模型源码分析 ##
 服务端在启动时，创建了两个`NioEventLoopGroup`，它们实际上是两个独立的`Reactor`线程池，一个用于接收客户端的`TCP`连接，另一个用于处理`I/O`相关的读写操作，或者执行系统`Task`、定时任务`Task`。
 `Netty`的`NioEventLoop`并不是一个纯粹的`I/O`线程，它除了负责`I/O`的读写之外，还兼顾处理以下两类任务。
-1、系统`Task`：通过调用`NioEventLoop`的`execute(Runnable task)`方法实现，`Netty`有很多系统`Task`，创建它们的主要原因是：当`I/O`线程和用户线程同时操作网络资源时，为了防止并发操作导致的锁竞争，将用户线程的操作封装成`Task`放入消息队列中，由`I/O`线程负责执行，这样就实现了局部无锁化。
+1、系统`Task`：通过调用`NioEventLoop`的`execute(Runnable task)`方法实现，`Netty`有很多系统`Task`，创建它们的主要原因是：当`I/O`线程和用户线程同时操作网络资源时，**为了防止并发操作导致的锁竞争，将用户线程的操作封装成`Task`放入消息队列中，由`I/O`线程负责执行，这样就实现了局部无锁化**。
 2、定时任务：通过调用`NioEventLoop`的`schedule(Runnble command, long  delay, TimeUnit unit)`方法实现
 
 不管是在客户端还是在服务端启动时，都会用到`NioEventLoopGroup`，例如：
@@ -1045,7 +1045,7 @@
 
 捋一捋事件回调的顺序：
 
-    首先通过代码channel.unsafe().register(regFuture)手动注册NioServerSocketChannel，注册完后会触发pipeline.fireChannelRegistered()方法，触发该NioServerSocketChannel的channelRegistered()回调，将ServerBootstrapAcceptor添加到该NioServerSocketChannel的ChannelPipeline上，接着IO线程不断轮询NioServerSocketChannel相关的selector是否有关心的IO操作，例如客户端的连接请求，当有客户端的连接请求时，会调用unsafe.read()方法读取客户端消息(客户端连接)，在这过程中会实例化NioSocketChannel，并触发pipeline.fireChannelRead(msg)方法，并将该NioSocketChannel作为msg参数传入，接着会调用ServerBootstrapAcceptor的channelRead方法，其中传递的msg就是服务端等待连接后生成的NioSocketChannel实例，在channelRead回调方法中将ServerBootstrap设置的childHandler添加到该NioSocketChannel的ChannelPipeline，该NioSocketChannel只对读事件感兴趣，同时会在该channelRead回调最后调用child.unsafe().register()方法，开启单独的线程执行NioEventLoop的run方法，接下来就可以通过selector的轮询来读取客户端发送的字节消息
+    首先调用方法initAndRegister初始化并注册NioServerSocketChannel，通过反射构造NioServerSocketChannel实例，再添加ChannelInitializer响应注册事件，再进入注册流程，首先通过代码channel.unsafe().register(regFuture)手动注册NioServerSocketChannel，注册完后会触发pipeline.fireChannelRegistered()方法，触发该NioServerSocketChannel的channelRegistered()回调，将ServerBootstrapAcceptor添加到该NioServerSocketChannel的ChannelPipeline上，接着IO线程不断轮询NioServerSocketChannel相关的selector是否有关心的IO操作，例如客户端的连接请求，当有客户端的连接请求时，会调用unsafe.read()方法读取客户端消息(客户端连接)，在这过程中会实例化NioSocketChannel，并触发pipeline.fireChannelRead(msg)方法，并将该NioSocketChannel作为msg参数传入，接着会调用ServerBootstrapAcceptor的channelRead方法，其中传递的msg就是服务端等待连接后生成的NioSocketChannel实例，在channelRead回调方法中将ServerBootstrap设置的childHandler添加到该NioSocketChannel的ChannelPipeline，该NioSocketChannel只对读事件感兴趣，同时会在该channelRead回调最后调用child.unsafe().register()方法，开启单独的线程执行NioEventLoop的run方法，接下来就可以通过selector的轮询来读取客户端发送的字节消息
     
 `step1`:
 `AbstractBootstrap.initAndRegister()`方法：
@@ -1216,8 +1216,11 @@
 
 ## NioEventLoop源码解析 ##
 `NioEventLoop`内部维护了一个线程(线程的实例化在`ThreadPerTaskExecutor`类中)，线程启动时会调用`NioEventLoop`的`run`方法，执行`I/O`任务和非`I/O`任务
+
 1、`I/O`任务即`selectionKey`中`ready`的事件，如`accept`、`connect`、`read`、`write`等，由`processSelectedKeysOptimized`或者`processSelectedKeysPlain`方法触发
+
 2、非`I/O`任务则为添加到`taskQueue`中的任务，如`register0`、`bind0`等任务，由`runAllTasks`方法触发
+
 3、两种任务的执行时间由变量`ioRatio`控制，默认值是50，则表示允许非`IO`任务执行的时间和`IO`任务执行的事件相等
 
 这里解读`NioEventLoop`中的`run`方法，该方法会在一个单独的线程中运行(具体参考`ThreadPerTaskExecutor`类，在`MultithreadEventExecutorGroup`(`NioEventLoopGroup`的父类)中会维护一个`NioEventLoop`类型的`children`数组)
