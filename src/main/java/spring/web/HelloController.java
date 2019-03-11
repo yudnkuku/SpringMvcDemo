@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.ModelAndView;
 import spring.bean.Person;
+import spring.entity.MyUser;
 import spring.entity.User;
 
 import javax.servlet.http.HttpServletRequest;
@@ -109,5 +110,33 @@ public class HelloController {
         List<String> result = new ArrayList<>();
         result.add("yuding");
         return result;
+    }
+
+    @RequestMapping(value = "/register")
+    public String testRegister(Model model) {
+        model.addAttribute("userName", "Deacon");
+        model.addAttribute("age",  26);
+        return "redirect:/demo/redirect/{userName}";
+    }
+
+    @ResponseBody
+    @RequestMapping("/redirect/{userName}")
+    public String testRedirect(@RequestParam("age") int age,
+                               @PathVariable("userName")String userName) {
+        System.out.println("UserName : " + userName + " Age : " + age);
+        return "end";
+    }
+
+//    @RequestMapping(value = "/login", method = RequestMethod.POST, consumes = "application/json")
+//    @ResponseBody
+//    public String login(@RequestParam("username") String username,
+//                        @RequestParam("password") String password) {
+//        return "login success!!!Welcome " + username;
+//    }
+
+    @RequestMapping(value = "/login", method = RequestMethod.POST, consumes = "application/json")
+    @ResponseBody
+    public String login2(@RequestBody MyUser user) {
+        return "success";
     }
 }

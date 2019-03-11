@@ -678,7 +678,7 @@ ava`对象)映射成数据库中的记录
         Cache cache = ms.getCache();
         if (cache != null) {
           //如果开启了二级缓存
-          //是否有必要清空二级缓存
+          //是否需要清空二级缓存，例如调用了insert/update/delete并commit，此时需要清空二级缓存
           flushCacheIfRequired(ms);
           if (ms.isUseCache() && resultHandler == null) {
             //如果使用二级缓存且resultHandler为空
@@ -687,9 +687,9 @@ ava`对象)映射成数据库中的记录
             //从二级缓存中获取查询结果
             List<E> list = (List<E>) tcm.getObject(cache, key);
             if (list == null) {
-              //如果没有就代理到BaseExecutor的query方法
+              //如果没有就代理到BaseExecutor的query方法，此时会将结果缓存到一级缓存中
               list = delegate.<E> query(ms, parameterObject, rowBounds, resultHandler, key, boundSql);
-              //由于设置了useCache为true，那么将查询结果放入到二级缓存中
+              //同时将查询结果放入到二级缓存中
               tcm.putObject(cache, key, list); // issue #578 and #116
             }
             return list;
@@ -742,6 +742,123 @@ ava`对象)映射成数据库中的记录
 缓存小结：
 
     首先如果在setting元素中设置cacheEnabled属性为false，那么会禁止使用二级缓存，即使定义了<cache>元素也没用，那么每次调用mapper方法时，会首先检查一级缓存是否有缓存值，如果有直接返回缓存值，否则从数据库中查询，如果是非select语句，在查询之前会先将缓存清空，也就是说这些语句会直接走db；如果cacheEnabled属性为true，同时定义了`<cache>`元素，那么会使用二级缓存，在调用mapper方法时，会首先检查二级缓存中是否有缓存值，如果有直接返回，否则将操作代理给包装的BaseExecutor，剩下的操作和之前一样
+
+一级缓存实例：
+
+    @Test
+    public void testCache() {
+        SqlSession sqlSession = SqlSessionUtil.getSession();
+        try {
+            IStudentDao dao = sqlSession.getMapper(IStudentDao.class);
+            String name = "yuding";
+            //第一次查
+            dao.getStudentInfoByName(name);
+            //第二次查从一级缓存中拿值
+            dao.getStudentInfoByName(name);
+
+        } finally {
+            if(sqlSession != null) {
+                sqlSession.close();
+            }
+        }
+    }
+
+结果，只进行了一次查询：
+
+    19-03-03 12:04:021 [main      ]  DEBUG    o.a.i.t.j.JdbcTransaction  - Opening JDBC Connection
+    2019-03-03 12:04:021 [main      ]  DEBUG    o.a.i.d.p.PooledDataSource  - Created connection 1632497828.
+    2019-03-03 12:04:021 [main      ]  DEBUG    o.a.i.t.j.JdbcTransaction  - Setting autocommit to false on JDBC Connection [com.mysql.jdbc.JDBC4Connection@614df0a4]
+    2019-03-03 12:04:021 [main      ]  DEBUG    s.d.I.getStudentInfoByName  - ==>  Preparing: select student_id as id, student_name as name from student where student_name=? 
+    2019-03-03 12:04:021 [main      ]  DEBUG    s.d.I.getStudentInfoByName  - ==> Parameters: yuding(String)
+    2019-03-03 12:04:022 [main      ]  TRACE    s.d.I.getStudentInfoByName  - <==    Columns: id, name
+    2019-03-03 12:04:022 [main      ]  TRACE    s.d.I.getStudentInfoByName  - <==        Row: 1, yuding
+    2019-03-03 12:04:022 [main      ]  DEBUG    s.d.I.getStudentInfoByName  - <==      Total: 1
+    2019-03-03 12:04:022 [main      ]  DEBUG    o.a.i.t.j.JdbcTransaction  - Resetting autocommit to true on JDBC Connection [com.mysql.jdbc.JDBC4Connection@614df0a4]
+    2019-03-03 12:04:022 [main      ]  DEBUG    o.a.i.t.j.JdbcTransaction  - Closing JDBC Connection [com.mysql.jdbc.JDBC4Connection@614df0a4]
+    2019-03-03 12:04:022 [main      ]  DEBUG    o.a.i.d.p.PooledDataSource  - Returned connection 1632497828 to pool.
+
+执行`delete`语句并提交，会清空一级缓存(二级缓存同样会清空)：
+
+    @Test
+    public void testCache() {
+        SqlSession sqlSession = SqlSessionUtil.getSession();
+        try {
+            IStudentDao dao = sqlSession.getMapper(IStudentDao.class);
+            String name = "yuding";
+            //第一次查
+            dao.getStudentInfoByName(name);
+            //删除，清空1级缓存
+            dao.deleteStudent(2);
+            sqlSession.commit();
+            //第二次查，此时一级缓存被清空，会从db查询
+            dao.getStudentInfoByName(name);
+
+        } finally {
+            if(sqlSession != null) {
+                sqlSession.close();
+            }
+        }
+    }
+
+结果，第二此`select`没有从缓存中拿值，而是走的`db`：
+
+    2019-03-03 12:08:042 [main      ]  DEBUG    o.a.i.t.j.JdbcTransaction  - Opening JDBC Connection
+    2019-03-03 12:08:042 [main      ]  DEBUG    o.a.i.d.p.PooledDataSource  - Created connection 1632497828.
+    2019-03-03 12:08:042 [main      ]  DEBUG    o.a.i.t.j.JdbcTransaction  - Setting autocommit to false on JDBC Connection [com.mysql.jdbc.JDBC4Connection@614df0a4]
+    2019-03-03 12:08:042 [main      ]  DEBUG    s.d.I.getStudentInfoByName  - ==>  Preparing: select student_id as id, student_name as name from student where student_name=? 
+    2019-03-03 12:08:042 [main      ]  DEBUG    s.d.I.getStudentInfoByName  - ==> Parameters: yuding(String)
+    2019-03-03 12:08:042 [main      ]  TRACE    s.d.I.getStudentInfoByName  - <==    Columns: id, name
+    2019-03-03 12:08:042 [main      ]  TRACE    s.d.I.getStudentInfoByName  - <==        Row: 1, yuding
+    2019-03-03 12:08:042 [main      ]  DEBUG    s.d.I.getStudentInfoByName  - <==      Total: 1
+    2019-03-03 12:08:042 [main      ]  DEBUG    s.d.I.deleteStudent  - ==>  Preparing: delete from student where student_id=? 
+    2019-03-03 12:08:042 [main      ]  DEBUG    s.d.I.deleteStudent  - ==> Parameters: 3(Integer)
+    2019-03-03 12:08:042 [main      ]  DEBUG    s.d.I.deleteStudent  - <==    Updates: 1
+    2019-03-03 12:08:042 [main      ]  DEBUG    o.a.i.t.j.JdbcTransaction  - Committing JDBC Connection [com.mysql.jdbc.JDBC4Connection@614df0a4]
+    2019-03-03 12:08:042 [main      ]  DEBUG    s.d.I.getStudentInfoByName  - ==>  Preparing: select student_id as id, student_name as name from student where student_name=? 
+    2019-03-03 12:08:042 [main      ]  DEBUG    s.d.I.getStudentInfoByName  - ==> Parameters: yuding(String)
+    2019-03-03 12:08:042 [main      ]  TRACE    s.d.I.getStudentInfoByName  - <==    Columns: id, name
+    2019-03-03 12:08:042 [main      ]  TRACE    s.d.I.getStudentInfoByName  - <==        Row: 1, yuding
+    2019-03-03 12:08:042 [main      ]  DEBUG    s.d.I.getStudentInfoByName  - <==      Total: 1
+    2019-03-03 12:08:042 [main      ]  DEBUG    o.a.i.t.j.JdbcTransaction  - Resetting autocommit to true on JDBC Connection [com.mysql.jdbc.JDBC4Connection@614df0a4]
+    2019-03-03 12:08:042 [main      ]  DEBUG    o.a.i.t.j.JdbcTransaction  - Closing JDBC Connection [com.mysql.jdbc.JDBC4Connection@614df0a4]
+    2019-03-03 12:08:042 [main      ]  DEBUG    o.a.i.d.p.PooledDataSource  - Returned connection 1632497828 to pool.
+
+开启二级缓存：
+
+    @Test
+    public void testCache() {
+        SqlSession sqlSession = SqlSessionUtil.getSession();
+        try {
+            IStudentDao dao = sqlSession.getMapper(IStudentDao.class);
+            String name = "yuding";
+            dao.getStudentInfoByName(name);
+            //关闭sqlSession，随后新建一个，验证二级缓存跨sqlSession
+            sqlSession.close();
+            sqlSession = SqlSessionUtil.getSession();
+            dao = sqlSession.getMapper(IStudentDao.class);
+            dao.getStudentInfoByName(name);
+
+        } finally {
+            if(sqlSession != null) {
+                sqlSession.close();
+            }
+        }
+    }
+
+结果会从二级缓存中拿值：
+
+    2019-03-03 12:12:019 [main      ]  DEBUG    o.a.i.t.j.JdbcTransaction  - Opening JDBC Connection
+    2019-03-03 12:12:020 [main      ]  DEBUG    o.a.i.d.p.PooledDataSource  - Created connection 1671590089.
+    2019-03-03 12:12:020 [main      ]  DEBUG    o.a.i.t.j.JdbcTransaction  - Setting autocommit to false on JDBC Connection [com.mysql.jdbc.JDBC4Connection@63a270c9]
+    2019-03-03 12:12:020 [main      ]  DEBUG    s.d.I.getStudentInfoByName  - ==>  Preparing: select student_id as id, student_name as name from student where student_name=? 
+    2019-03-03 12:12:020 [main      ]  DEBUG    s.d.I.getStudentInfoByName  - ==> Parameters: yuding(String)
+    2019-03-03 12:12:020 [main      ]  TRACE    s.d.I.getStudentInfoByName  - <==    Columns: id, name
+    2019-03-03 12:12:020 [main      ]  TRACE    s.d.I.getStudentInfoByName  - <==        Row: 1, yuding
+    2019-03-03 12:12:020 [main      ]  DEBUG    s.d.I.getStudentInfoByName  - <==      Total: 1
+    2019-03-03 12:12:020 [main      ]  DEBUG    o.a.i.t.j.JdbcTransaction  - Resetting autocommit to true on JDBC Connection [com.mysql.jdbc.JDBC4Connection@63a270c9]
+    2019-03-03 12:12:020 [main      ]  DEBUG    o.a.i.t.j.JdbcTransaction  - Closing JDBC Connection [com.mysql.jdbc.JDBC4Connection@63a270c9]
+    2019-03-03 12:12:020 [main      ]  DEBUG    o.a.i.d.p.PooledDataSource  - Returned connection 1671590089 to pool.
+    2019-03-03 12:12:021 [main      ]  DEBUG    s.dao.IStudentDao  - Cache Hit Ratio [spring.dao.IStudentDao]: 0.5
 
 
 ## 注册DAO接口bean ##

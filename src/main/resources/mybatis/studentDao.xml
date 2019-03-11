@@ -48,4 +48,9 @@
         (#{name})
     </insert>
 
+    <delete id="deleteStudent" parameterType="int">
+        delete from student
+        where
+        student_id=#{id}
+    </delete>
 </mapper>
