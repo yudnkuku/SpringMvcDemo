@@ -14,6 +14,7 @@ import spring.entity.User;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.validation.Valid;
+import javax.xml.transform.Result;
 import java.util.*;
 
 @Controller
@@ -116,13 +117,17 @@ public class HelloController {
     public String testRegister(Model model) {
         model.addAttribute("userName", "Deacon");
         model.addAttribute("age",  26);
+        User user = new User();
+        user.setUsername("deacon");
+        model.addAttribute("user", user);
         return "redirect:/demo/redirect/{userName}";
     }
 
     @ResponseBody
     @RequestMapping("/redirect/{userName}")
     public String testRedirect(@RequestParam("age") int age,
-                               @PathVariable("userName")String userName) {
+                               @PathVariable("userName")String userName,
+                               Model model) {
         System.out.println("UserName : " + userName + " Age : " + age);
         return "end";
     }

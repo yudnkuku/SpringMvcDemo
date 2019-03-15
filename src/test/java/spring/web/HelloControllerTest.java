@@ -40,6 +40,7 @@ public class HelloControllerTest extends AbstractControllerTest {
     public void testRedirect() throws Exception {
         this.mockMvc.perform(get("/demo/register"))
                 .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrlPattern("/demo/redirect/Deacon?age=26"));
+                .andExpect(redirectedUrlPattern("/demo/redirect/Deacon?age=26"))
+                .andExpect(model().attributeDoesNotExist("user"));
     }
 }

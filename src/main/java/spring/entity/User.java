@@ -1,20 +1,22 @@
 package spring.entity;
 
-import org.hibernate.validator.constraints.Email;
-import org.hibernate.validator.constraints.NotEmpty;
-import org.springframework.format.annotation.DateTimeFormat;
+import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonRootName;
+
 
 import java.util.Date;
 
+@JsonRootName("user")
 public class User {
 
-    @NotEmpty
     public String username;
 
-    @NotEmpty
+    @JsonIgnore
     public String password;
 
-    @Email
+    @JsonProperty(value = "e-mail")
     public String email;
 
     public User() {
@@ -59,7 +61,6 @@ public class User {
         this.birthday = birthday;
     }
 
-    @DateTimeFormat(pattern = "yy-MM-dd")
     public Date birthday;
 
 
