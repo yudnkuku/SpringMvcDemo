@@ -444,5 +444,66 @@
     </mvc:cors>
 
 
+## Http缓存 ##
+重用已获取的资源能够有效的提升网站与应用的性能，`Web`缓存能够减少延迟与网络阻塞，进而减少显示某个资源所用的时间，借助`HTTP`缓存，`Web`站点变得更具有响应性
+
+**缓存分类**
+
+缓存的种类有很多，其大致可归为两类：私有缓存与共享缓存。共享缓存存储的响应能够被多个用户使用。私有缓存只能用于单独用户。
+
+**HTTP1.1的缓存方案**
+
+`Cache-Control`作为缓存控制的请求头部，指定了缓存规则。
+
+|指令|参数|说明|
+|:-:|:-:|:-:|
+|`no-cache`|无|强制向源服务器再次验证，使用对比缓存来验证缓存数据|
+|`no-store`|无|不缓存请求或响应的任何内容|
+|`max-age`|必须|过期时间|
+|`public`|无|客户端和中间人(比如中间代理/CDN等)可以缓存|
+|`private`|无|中间人不能缓存此响应，该响应只能应用于浏览器私有缓存中|
+
+`Cache-Control:no-cache`
+
+使用`no-cache`指令的目的是为了防止从缓存中返回过期的资源，客户端发送的请求中如果包含`no-cache`指令，则表示客户端将不会接收缓存过的响应。于是，中间的缓存服务器必须把客户端请求转发给源服务器。
+
+请求头部字段：
+
+|头部名称|说明|
+|:-:|:-:|
+|`If-Match`|比较`ETag`是否一致，和响应的`ETag`字段相对应|
+|`If-None-Match`|比较`ETag`是否不一致，和响应的`ETag`字段相对应|
+|`If-Modified-Since`|比较资源最后更新时间是否一致，和响应的`Last-Modified`字段相对应|
+|`If-Unmodified-Since`|比较资源最后更新时间是否不一致，和响应的`Last-Modified`字段相对应|
+
+响应头部字段：
+
+|头部名称|说明|
+|:-:|:-:|
+|`ETag`|资源匹配信息|
+|`Expires`|`http1.0`的缓存过期时间|
+|`Last-Modified`|资源最后一次修改的时间|
+
+`ETag/If-None-Match`：第一次请求会返回资源的`Etag`，第二次请求时会带上`If-None-Match`请求头，其值就是`ETag`值，服务器接收到请求后，判断`If-None-Match`字段值与请求资源的`ETag`值是否一致，如果一致则返回`304 Unmodified`响应，表明资源未修改，告知客户端使用自己的本地缓存，否则返回`200`响应。
+
+`Last-modified/If-Modified-Since`:第一次请求会返回资源的`Last-modified`属性，表示资源上次更新时间，第二次请求时会带上`If-Modified-Since`请求头，字段值为`Last-modified`，服务器接收到请求后判断请求资源是否在`If-Modified-Since`字段值时间后修改了， 如果是则返回`200`响应，否则返回`304`响应，表明资源未修改。
+
+`ETag`的优先级一般高于`Last-Modified`
+
+**强制缓存**
+
+1、客户端在请求资源前，会检查上一次该资源响应头的`Cache-Control`字段中的`max-age`值，如果没有超过最大缓存时间，则直接使用本地缓存，而不向服务器请求
+
+2、服务端在接收到请求后，根据同样的策略处理
+
+这两种情况归根结底都是使用客户端的本地资源，服务器没有返回资源实体，这样的好处是节省请求次数或者请求流量，但缺点是如果在`max-age`时间内服务器资源有更新，客户端无法得到最新的服务器资源，此时可以通过`Ctrl+F5`强制刷新(其实就是设置一个`Cache-Control:no-cache`请求头)，获取最新的服务器资源
+
+**协商缓存(对比缓存)**
+
+在没有走强制缓存逻辑的情况下，服务器会进行`Last-Modified`和`ETag`校验，如果校验的资源未更新，则会返回`304`，否则会返回新的资源实体。
+
+![http-caching][3]
+
   [1]: https://www.zhihu.com/question/19786827/answer/151015728
   [2]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/java/img/preflight_request.png
+  [3]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/java/img/http-caching.png
