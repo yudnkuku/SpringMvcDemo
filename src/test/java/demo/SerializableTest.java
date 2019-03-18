@@ -113,10 +113,12 @@ public class SerializableTest {
         String jsonStr2 = mapper.writeValueAsString(pojo);
         Assert.assertEquals("{\"name\":\"deacon\",\"list\":\"element1\"}", jsonStr2);
     }
+
     @Data
     public static class TestArrayPOJO {
         private String name;
 
         private List<String> list;
     }
+
 }

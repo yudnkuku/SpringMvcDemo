@@ -8,7 +8,7 @@ public class DoubleCheckedSingleton {
     //必须使用volatile关键字
     private volatile static DoubleCheckedSingleton instance = null;
 
-    public DoubleCheckedSingleton() {
+    private DoubleCheckedSingleton() {
     }
 
     public static DoubleCheckedSingleton getInstance() {
