@@ -57,6 +57,7 @@ public class CountDownLatchDemo {
     }
 
     public static void main(String[] args) {
+
         CountDownLatch count = new CountDownLatch(2);
 
         Thread t1 = new Thread(() -> {
@@ -88,7 +89,7 @@ public class CountDownLatchDemo {
                 Thread.currentThread().interrupt();
             }
             System.out.println(Thread.currentThread().getName() + "从await阻塞中返回");
-        });
+        }, "t3");
 
         Thread t4 = new Thread(() -> {
             try {
@@ -98,9 +99,20 @@ public class CountDownLatchDemo {
                 Thread.currentThread().interrupt();
             }
             System.out.println(Thread.currentThread().getName() + "从await阻塞中返回");
-        });
+        }, "t4");
+
+        Thread t5 = new Thread(() -> {
+            try {
+                count.await();
+            } catch (InterruptedException e) {
+                System.out.println(Thread.currentThread().getName() + "被中断了");
+                Thread.currentThread().interrupt();
+            }
+            System.out.println(Thread.currentThread().getName() + "从await阻塞中返回");
+        }, "t5");
 
         t3.start();
         t4.start();
+        t5.start();
     }
 }

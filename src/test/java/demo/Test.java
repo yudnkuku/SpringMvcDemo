@@ -1,5 +1,6 @@
 package demo;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.FactoryBean;
 import org.springframework.cglib.proxy.InvocationHandler;
 import org.springframework.cglib.proxy.Proxy;
@@ -17,6 +18,7 @@ import spring.service.TeacherService;
 import java.lang.reflect.Method;
 import java.util.*;
 
+@Slf4j
 public class Test {
 
     @org.junit.Test
@@ -163,5 +165,25 @@ public class Test {
     public void testHashMapResize() {
         HashMap<Object, Object> map = new HashMap<>();
         map.put(1, 1);
+    }
+
+
+    @org.junit.Test
+    public void testLogger() {
+        log.debug("this is debug");
+        log.info("this is info");
+        log.warn("this is warn");
+        log.trace("this is trace");
+        log.error("this is error");
+    }
+
+    @org.junit.Test
+    public void testBitCal() {
+        System.out.println((-1 << 2));
+        System.out.println((-1 << 29));
+        System.out.println((0 << 29));
+        System.out.println((1 << 29));
+        System.out.println((2 << 29));
+        System.out.println((3 << 29));
     }
 }

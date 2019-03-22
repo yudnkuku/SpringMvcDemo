@@ -19,28 +19,28 @@
 
     <!--定义FILE appender，将日志输出到文件-->
     <timestamp key="bySecond" datePattern="yyyyMMdd'T'HHmmss"/>
-    <appender name="FILE" class="ch.qos.logback.core.FileAppender">
-        <!--<file>D:/logback.log</file>-->
-        <file>log-${bySecond}.txt</file>
-        <!--覆盖或者添加-->
-        <append>true</append>
-        <!--这里使用encoder而不是layout-->
-        <encoder>
-            <pattern>%-4relative [%thread] %-5level %logger{35} - %msg%n</pattern>
-        </encoder>
-    </appender>
+    <!--<appender name="FILE" class="ch.qos.logback.core.FileAppender">-->
+        <!--&lt;!&ndash;<file>D:/logback.log</file>&ndash;&gt;-->
+        <!--<file>log-${bySecond}.txt</file>-->
+        <!--&lt;!&ndash;覆盖或者添加&ndash;&gt;-->
+        <!--<append>true</append>-->
+        <!--&lt;!&ndash;这里使用encoder而不是layout&ndash;&gt;-->
+        <!--<encoder>-->
+            <!--<pattern>%-4relative [%thread] %-5level %logger{35} - %msg%n</pattern>-->
+        <!--</encoder>-->
+    <!--</appender>-->
 
     <!--定义滚动文件appender，先将日志记录到指定文件，当符合某个条件时再将日志记录到其他日志-->
-    <appender name="ROLLING-FILE-1" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <!--滚动策略-->
-        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
-            <fileNamePattern>rolling-file-%d{yyyy-MM-dd}.log</fileNamePattern>
-            <maxHistory>30</maxHistory>
-        </rollingPolicy>
-        <encoder>
-            <pattern>%-4relative [%thread] %-5level %logger{35} - %msg%n</pattern>
-        </encoder>
-    </appender>
+    <!--<appender name="ROLLING-FILE-1" class="ch.qos.logback.core.rolling.RollingFileAppender">-->
+        <!--&lt;!&ndash;滚动策略&ndash;&gt;-->
+        <!--<rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">-->
+            <!--<fileNamePattern>rolling-file-%d{yyyy-MM-dd}.log</fileNamePattern>-->
+            <!--<maxHistory>30</maxHistory>-->
+        <!--</rollingPolicy>-->
+        <!--<encoder>-->
+            <!--<pattern>%-4relative [%thread] %-5level %logger{35} - %msg%n</pattern>-->
+        <!--</encoder>-->
+    <!--</appender>-->
 
     <!--定义一个异步appender-->
     <appender name="ASYNC" class="ch.qos.logback.classic.AsyncAppender">
