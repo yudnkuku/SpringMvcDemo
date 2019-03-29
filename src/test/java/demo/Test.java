@@ -186,4 +186,30 @@ public class Test {
         System.out.println((2 << 29));
         System.out.println((3 << 29));
     }
+
+    @org.junit.Test
+    public void testBytes2Str() {
+        String hexStr = "31440000000000000000000000000000000000000000000000000000000000000000000000000000";
+        String tmp = "";
+        for (int i = 0; i < hexStr.length() / 2; i++) {
+            tmp = tmp + (char) Integer.valueOf(hexStr.substring(2 * i, 2 * i + 2), 16).byteValue();
+        }
+        System.out.println(tmp);
+    }
+
+    @org.junit.Test
+    public void testHex() {
+        System.out.println(Integer.toHexString(2019));
+        String hex = Integer.toHexString(2019);
+        StringBuilder sb = new StringBuilder();
+        if (hex.length() < 4) {
+            int space = 4 - hex.length();
+            for (int i = 0; i < space; i++) {
+                sb.append("0");
+            }
+            sb.append(hex);
+        }
+        System.out.println(sb.toString());
+    }
+    
 }
