@@ -7,6 +7,7 @@ import lombok.Data;
 import org.junit.Assert;
 import org.junit.Test;
 import spring.entity.User;
+import spring.weapp.bean.*;
 
 import java.io.*;
 import java.util.ArrayList;
@@ -121,4 +122,22 @@ public class SerializableTest {
         private List<String> list;
     }
 
+    @Test
+    public void test() throws JsonProcessingException {
+        ResponseBean responseBean = new ResponseBean();
+        Sensor sensor = new Sensor("door1", "1", "key", "id1", 0);
+        List<Sensor> sensorList = new ArrayList<>();
+        sensorList.add(sensor);
+        MasterInfo masterInfo = new MasterInfo("hostid", "34:03:DE:35:5F:1D", sensorList);
+        List<MasterInfo> masterInfoList = new ArrayList<>();
+        masterInfoList.add(masterInfo);
+        Device device = new Device("deviceid", "devicename", "devtype", "fiberhome", masterInfoList);
+        responseBean.setData(device);
+        responseBean.setCode(Code.SUCCESS);
+        responseBean.setMsg("success");
+
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.configure(SerializationFeature.INDENT_OUTPUT, true);
+        System.out.println(mapper.writeValueAsString(responseBean));
+    }
 }

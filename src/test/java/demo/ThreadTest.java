@@ -3,7 +3,9 @@ package demo;
 import org.junit.Test;
 
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
 import java.util.concurrent.FutureTask;
+import java.util.concurrent.ThreadPoolExecutor;
 
 public class ThreadTest {
 
@@ -207,5 +209,19 @@ public class ThreadTest {
         System.out.println(thread.getName() + "  (" + thread.getState() + ")  is interrupted");
         Thread.sleep(100);
         System.out.println(thread.getName() + "  (" + thread.getState() + ")  is interrupted now");
+    }
+
+    @Test
+    public void testPool() {
+        ThreadPoolExecutor pool = (ThreadPoolExecutor) Executors.newFixedThreadPool(5);
+        Runnable r = new Runnable() {
+            @Override
+            public void run() {
+                System.out.println("do some work");
+            }
+        };
+        pool.execute(r);
+        pool.shutdownNow();
+        pool.execute(r);
     }
 }

@@ -95,11 +95,19 @@
         </property>
     </bean>
 
+    <bean id="objectMapper" class="spring.weapp.config.CustomObjectMapper"/>
+
     <mvc:annotation-driven content-negotiation-manager="contentNegotiationManager">
         <mvc:path-matching suffix-pattern="false"/>
         <mvc:argument-resolvers>
             <bean class="spring.config.PersonHandlerMethodArgumentResolver"/>
         </mvc:argument-resolvers>
+        <mvc:message-converters>
+            <bean id="jsonHttpMessageConverter" class="org.springframework.http.converter.json.MappingJackson2HttpMessageConverter">
+                <property name="supportedMediaTypes" value="application/json"/>
+                <property name="objectMapper" ref="objectMapper"/>
+            </bean>
+        </mvc:message-converters>
     </mvc:annotation-driven>
 
     <!--静态资源交给tomcat默认servlet-->

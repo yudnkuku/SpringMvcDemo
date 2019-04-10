@@ -211,5 +211,16 @@ public class Test {
         }
         System.out.println(sb.toString());
     }
-    
+
+    @org.junit.Test
+    public void testRetry() {
+//        retry:
+        for (int i = 0; i < 10; i++) {
+            retry:
+            while (i == 5) {
+                continue retry;
+            }
+            System.out.println(i);
+        }
+    }
 }
