@@ -190,11 +190,11 @@ public class Test {
     @org.junit.Test
     public void testBytes2Str() {
         String hexStr = "31440000000000000000000000000000000000000000000000000000000000000000000000000000";
-        String tmp = "";
+        StringBuffer tmp = new StringBuffer();
         for (int i = 0; i < hexStr.length() / 2; i++) {
-            tmp = tmp + (char) Integer.valueOf(hexStr.substring(2 * i, 2 * i + 2), 16).byteValue();
+            tmp = tmp.append((char) Integer.valueOf(hexStr.substring(2 * i, 2 * i + 2), 16).byteValue());
         }
-        System.out.println(tmp);
+        System.out.println(tmp.toString());
     }
 
     @org.junit.Test

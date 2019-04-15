@@ -118,6 +118,46 @@
 
 ![Netty Event Flow][1]
 
+`Inbound`事件从左到右由`ChannelHandler`处理，`Inbound`事件通常由`IO`线程触发，当`Channel`的状态发生改变时(例如新建立连接或者关闭连接)都会唤醒`ChannelHandler`调用相关代码处理，如果`Inbound`事件向右如果到达了`TailHandler`，那么根据你的日志等级会选择丢弃或者存入日志。例如`DefaultChannelPipeline.TailHandler`的`channelRead`实现：
+
+        @Override
+        public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+            try {
+                //将消息存入日志
+                logger.debug(
+                        "Discarded inbound message {} that reached at the tail of the pipeline. " +
+                                "Please check your pipeline configuration.", msg);
+            } finally {
+                //释放？
+                ReferenceCountUtil.release(msg);
+            }
+        }
+
+而`Outbound`事件则是从右向左传递，`Outbound`事件通常是由用户请求`IO`操作的代码触发(**用户代码触发**)，例如写请求或者连接请求，如果`Outbound`事件最后到达了`HeadHandler`，那么会由`Channel`相关的`IO`线程来处理该事件，`IO`线程会调用底层的`Unsafe`类执行相关的操作，例如`DefaultChannelPipeline.HeadHandler`中的`write`方法：
+
+        @Override
+        public void write(ChannelHandlerContext ctx, Object msg, ChannelPromise promise) throws Exception {
+            //调用Channel相关的Unsafe类进行操作，在IO线程中执行
+            unsafe.write(msg, promise);
+        }
+        
+        //AbstractChannel$AbstractUnsafe
+        @Override
+        public void write(Object msg, ChannelPromise promise) {
+            if (!isActive()) {
+                // Mark the write request as failure if the channel is inactive.
+                if (isOpen()) {
+                    promise.tryFailure(NOT_YET_CONNECTED_EXCEPTION);
+                } else {
+                    promise.tryFailure(CLOSED_CHANNEL_EXCEPTION);
+                }
+                // release message now to prevent resource-leak
+                ReferenceCountUtil.release(msg);
+            } else {
+                outboundBuffer.addMessage(msg, promise);
+            }
+        }
+
 ## ChannelInitializer ##
 
 它是一个特殊的`ChannelHandler`，当`Channel`注册到`EventLoop`中时初始化`Channel`，直接看源码：
@@ -722,6 +762,25 @@
         ChannelPromise regFuture = channel.newPromise();
         //调用NioServerSocketChannel底层的注册方法，并fireChannelRegistered()
         channel.unsafe().register(regFuture);   //(3)
+        if (regFuture.cause() != null) {
+            if (channel.isRegistered()) {
+                channel.close();
+            } else {
+                channel.unsafe().closeForcibly();
+            }
+        }
+
+        // If we are here and the promise is not failed, it's one of the following cases:
+        // 1) If we attempted registration from the event loop, the registration has been completed at this point.
+        //    i.e. It's safe to attempt bind() or connect() now beause the channel has been registered.
+        // 2) If we attempted registration from the other thread, the registration request has been successfully
+        //    added to the event loop's task queue for later execution.
+        //    i.e. It's safe to attempt bind() or connect() now:
+        //         because bind() or connect() will be executed *after* the scheduled registration task is executed
+        //         because register(), bind(), and connect() are all bound to the same thread.
+        //上面这段话意思是：如果`Channel`的注册是在event loop线程中(eventLoop.inEventLoop()方法返回true)执行，那么到此时注册过程已经完成；否则如果是在其他线程中进行`Channel`的注册，那么注册请求会被封装成任务添加到event loop的任务队列taskQueue中等待后续在event loop相关的线程中执行该任务，因此此时尝试bind或者connect操作是安全的，因为这些操作全部都绑定到某个相同的线程中，并且会顺序执行(register->bind(connect))。注册过程参考(3)的源码解析
+        return regFuture;
+    }
         
 (1)首先看构造`channel`方法`createChannel()`:
     
@@ -1725,6 +1784,7 @@
         channel.eventLoop().execute(new Runnable() {
             @Override
             public void run() {
+                //如果注册成功
                 if (regFuture.isSuccess()) {
                     channel.bind(localAddress, promise).addListener(ChannelFutureListener.CLOSE_ON_FAILURE);
                 } else {
@@ -1737,11 +1797,13 @@
 进入`AbstractChannel.bind`方法：
 
     public ChannelFuture bind(SocketAddress localAddress, ChannelPromise promise) {
+        //调用DefaultChannelPipeline.bind方法绑定
         return pipeline.bind(localAddress, promise);
     }
 
 进入`DefaultChannelPipeline.bind`：
-
+    
+    //bind事件作为用户代码触发的Outbound事件，从tail向head传递
     public ChannelFuture bind(SocketAddress localAddress, ChannelPromise promise) {
         return tail.bind(localAddress, promise);
     }

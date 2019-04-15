@@ -214,7 +214,7 @@
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
             <version>${logback-version}</version>
-            <scope>test</scope>
+            <!--<scope>test</scope>-->
         </dependency>
 
         <!-- https://mvnrepository.com/artifact/org.openjdk.jmh/jmh-core -->
@@ -240,6 +240,12 @@
             <scope>provided</scope>
         </dependency>
 
+        <!--https://github.com/TooTallNate/Java-WebSocket webscoket依赖-->
+        <dependency>
+            <groupId>org.java-websocket</groupId>
+            <artifactId>Java-WebSocket</artifactId>
+            <version>1.4.0</version>
+        </dependency>
     </dependencies>
     <!--<build>-->
         <!--<resources>-->
@@ -249,4 +255,22 @@
             <!--</resource>-->
         <!--</resources>-->
     <!--</build>-->
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.1</version>
+                <configuration>
+                    <source>1.8</source>
+                    <target>1.8</target>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>com.yd</groupId>
+                <artifactId>demo-maven-plugin</artifactId>
+                <version>1.0-SNAPSHOT</version>
+            </plugin>
+        </plugins>
+    </build>
 </project>
