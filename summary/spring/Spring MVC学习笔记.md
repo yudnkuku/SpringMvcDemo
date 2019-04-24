@@ -143,6 +143,7 @@
 假如`my.placeholder`已经被注册到属性源中，例如系统属性或者环境变量，那么该占位符就会被解析成对应的值，否则`"default/path"`就会被作为默认值使用，如果没有指定默认值，那么会抛出`IllegalArgumentException`异常
 ## 1.4 bean作用域 ##
 `bean`的作用域：
+
 |作用域|描述|
 |:--:|:--:|
 |`singleton`|(默认)表明对于每个`Spring IoC`容器，一个`bean`定义对应一个对象实例|
@@ -151,6 +152,7 @@
 |`session`|每个`HTTP`会话对应对象实例，仅在`web`环境下有效|
 |`application`|每个`ServletContext`下对应对象实例，仅在`web`环境下有效|
 |`websocket`|每个`WebSocket`下对应对象实例，仅在`web`环境下有效|
+
 `request`、`session`、`application`、`websocket`四种作用域类型仅在`web`环境中才有效，例如`XmlWebApplicationContext`，如果在普通容器中使用这些作用域，会爆出`IllegalStateException`异常。
 当高级别作用域`bean`注入到低级别作用域`bean`时，会出现`bean`的作用域协同问题，例如将`session`作用域的`bean`注入到`singleton`作用域的`bean`中
 
@@ -163,7 +165,8 @@
     </bean>
 
 由于`userManager`是`singleton`的，每个容器只会实例化一个实例，因此它的依赖`userPreferences`也只会注入一次，这意味着`userPreferences`的作用域成了`singleton`，这显然不是我们想要的结果。
-这个时候需要注入代理类，这个代理类实际上就是个`UserPreferences`实例（和`UserPreferences`拥有同样的公共接口），容器将这个代理对象注入到`userManager`中，但`userManager`并不知道注入的是代理类，因此，**在`UserManager`每次调用注入的`UserPreferences`的方法时，实际上调用的是代理对象上的方法，代理对象从`HTTP Session`中获取真正的`UserPreferences`对象，并将方法调用代理给真正的`UserPreferences`对象**。
+
+这个时候需要注入代理类，这个代理类实际上就是个`UserPreferences`实例（和`UserPreferences`拥有同样的公共接口），容器将这个代理对象注入到`userManager`中，但`userManager`并不知道注入的是代理类，因此，**在`UserManager`每次调用注入的`UserPreferences`的方法时，实际上调用的是代理对象上的方法，代理对象从`HTTP Session`中获取真正的`UserPreferences`对象，并将方法调用代理给真正的`UserPreferences`对象。(注意这里的场景：需要将作用域更短的`bean`注入到作用域更长的`bean`，例如将一个`HTTP session`的`bean`注入到`singleton`作用域的`bean`)**
 
     
 
@@ -175,7 +178,7 @@
         <property name="userPreferences" ref="userPreferences"/>
     </bean>
 
-使用`<aop:scoped-proxy/>`创建代理时，实际上创建了基于`CGLIB`类的代理，这个代理只会拦截公共方法调用，因此不要在此代理上调用非公共方法。
+使用`<aop:scoped-proxy/>`(默认时`CGlib`代理，可以通过`proxy-target-class=false`来设置成`jdk`动态代理)创建代理时，实际上创建了基于`CGLIB`类的代理，这个代理只会拦截公共方法调用，因此不要在此代理上调用非公共方法。
 
 ## 1.5 自定义bean ##
 ## 1.5.1 生命周期回调函数 ##
@@ -416,6 +419,7 @@
         ...
     }
 
+`<context:component-scan>`隐式地启用了`<context:annotation-config>`的功能，因此如果使用了注解`<context:component-scan>`则可以不用注解`<context:annotation-config>`
 ## 1.9.3 使用过滤器自定义扫描 ##
 定义注解`@ComponentScan`中的`includeFilter`和`excludeFilter`来包含/排除某些特定的类
 `Filter Types`列表：
@@ -1290,7 +1294,7 @@
 一些注解的控制器方法参数表示字符串请求输入，例如`@RequestParam`,`@RequestHeader`,`@PathVariable`,`@MatrixVariable`,`@CookieValu`e，如果声明的参数不是字符串类型，可能需要进行类型转换，类型转换可能通过`WebDataBinder`进行定制，或者注册`Formatters`
 
 **@RequestParam**
-将请求参数(查询参数或者表格数据)绑定到控制器方法参数。
+将请求参数(**查询参数或者表格数据**)绑定到控制器方法参数。
 
     @Controller
     @RequestMapping("/pets")
@@ -1307,6 +1311,12 @@
     
         // ...
 使用这个注解的方法参数默认是必需的，可以通过`"required=false"`设置成可选。
+
+将参数类型声明为数组或者列表会解析同一个请求参数名称的多个值，即某个请求参数带有多个值会被解析成数组或者列表
+
+当`@RequestParam`注解的方法参数被声明为`Map<String, String>`或者`MultiValueMap<String, String>`时，且没有在注解中指定参数名称，那么这个`map`会将所有的请求参数都组装成`map`，请求参数名对应`map`的`key`，值对应`map`的`value`
+
+该注解的解析器参考`RequestParamMethodArgumentResolver`和`RequestParamMapMethodArgumentResolver`
 
 **@RequestHeader**
 将请求头部绑定到控制器方法参数上
@@ -1326,6 +1336,10 @@
             @RequestHeader("Keep-Alive") long keepAlive) {
         //...
     }
+
+当`@RequestHeader`注解到`Map<String, String>`或者`MultiValueMap<String, String>`上时，会将所有的请求头都装配到该`map`中
+
+内建的类型转换器可以将逗号分隔的`String`转换成数组或者列表，举个例子，如果方法参数注解了`@RequestHeader("Accept")`，方法参数类型可以是`String`/`String[]`/`List<String>`，`Accept`请求头信息：`text/html,application/xhtml+xml,application/xml;q=0.9`
 
 **@CookieValue**
 将`HTTP cookie`的值绑定到控制器方法参数上
@@ -1378,14 +1392,14 @@
     }
     
 **@SessionAttributes**
-`@SessionAttributes`用来在`HTTP`会话中、请求之间存储模型属性，这是一个类级注解，列出了存储在会话中的模型属性名或者模型属性类型，该注解可以将所有控制器内部声明的模型属性标注为会话级模型属性，从而不同的请求可以访问一个全局的属性，**因为模型属性在不同的请求间会重置**
+`@SessionAttributes`用来在`HTTP`会话中、请求之间存储模型属性，这是一个**类级注解**，列出了存储在会话中的模型属性名或者模型属性类型，该注解可以将所有控制器内部声明的模型属性标注为会话级模型属性，从而不同的请求可以访问一个全局的属性，**因为模型属性在不同的请求间会重置**
 
     @Controller
     @SessionAttributes("pet")
     public class EditPetForm {
         // ...
     }
-当第一个请求将名称为`pet`的模型属性加入至`model`时，它会自动提升并存入`HTTP`会话中，直到控制器方法使用`SessionStatus`方法参数清除内存
+当第一个请求将名称为`pet`的模型属性加入至`model`时，它会自动提升并存入`HTTP`会话中，直到控制器方法使用`SessionStatus`方法参数清除内存，显示调用`SessionStatus.setComplete()`方法清除
 
     @Controller
     @SessionAttributes("pet")
@@ -1403,6 +1417,17 @@
             }
         }
     }
+
+**@SessionAttribute**
+
+如果你需要访问全局管理的已经存在的会话属性(也就是在控制其之外，例如过滤器中设置)，你可以使用`@SessionAttribute`注解，该注解是一个方法参数级注解，如下所示：
+
+    @RequestMapping("/")
+    public String handle(@SessionAttribute User user) {
+        //...
+    }
+
+如果想要增删会话属性，考虑将`org.springframework.web.context.request.WebRequest`或者`javax.servlet.http.HttoSession`实例注入到控制器方法。
 
 **@RequestAttribute**
 用来访问事先创造的(如`Filter`或者`HandlerInterceptor`)预存在的请求属性。
@@ -1563,6 +1588,63 @@
     三个字段都显示
 
 ## 5.9 Model ##
+
+你可以在如下情况下使用`@ModelAttribute`注解：
+
+ - 注解在`@RequestMapping`方法的方法参数上，表示从模型中创建或者访问对象，并通过`WebDataBinder`将属性绑定到请求中
+ - 作为`@Controller`或者`@ControllerAdvice`类中的方法即注解，在所有`@RequestMapping`方法调用之前初始化模型属性
+ - 注解在`@RequestMapping`方法上表明器返回值会添加到模型属性中
+
+每个控制器可以有任意数量的`@ModelAttribute`注解的方法，这些方法都会在`@RequestMapping`方法之前调用，用来初始化模型属性，`@ModelAttribute`方法也可以通过`@ControllerAdvice`在控制器直接共享
+
+举几个例子：
+    
+    //在全局Model里添加多个属性，在所有@RequestMapping方法之前调用，无返回值
+    @ModleAttribute
+    public void populateModel(@RequestParam String number, Model model) {
+        model.addAttribute(accountRepository.findAccount(number));
+        //add more...
+    }
+    
+    //方法有返回值，将返回值添加到全局Model中
+    @ModelAttribute
+    public Account addAccount(@RequestParam String number) {
+        return accountRepository.findAccount(number);
+    }
+    
+## 5.7 DataBind ##
+`@Controller`和`@ControllerAdvice`类可以使用`@InitBinder`方法来初始化`WebDataBinder`实例，这些`WebDataBinder`实例可以用来做如下事情：
+
+ - 将请求参数(表单数据或者查询数据)绑定到模型对象中
+ - 将字符串请求参数(例如请求参数，路径变量，请求头，`cookie`等)转换成控制器方法参数类型
+ - 当渲染`HTML`表单时将模型数据格式化成字符串
+
+`@InitBinder`方法可以注册**控制器特定**的`java.bean.PropertyEditor`或者`Spring Converter`和`Formatter`组件，另外，你可以使用`MVC Config`在**全局共享**的`FormattingConversionService`(格式转换服务)中注册`Converter`和`Formatter`
+ 
+`@InitBinder`方法支持和`@RequestMapping`方法相同的参数，除了`@ModelAttribute`参数，注意两点：一般`@InitBinder`方法的方法参数都带有一个`WebDataBinder`类型参数，且返回值是`void`，如下所示：
+
+    @Controller
+    public class FormController {
+        
+        //声明@InitBinder方法，方法参数是WebDataBinder实例，返回值void
+        @InitBinder
+        public void initBinder(WebDataBinder binder) {
+            SimpleDateFormat dataFormat = new SimpleDateFormat("yyyy-MM-dd");
+            dateForma.setLenient(false);
+            binder.registerCustomEditor(Date.class, new CustomDateEditor(dateFormat, false));
+        }
+    }
+
+另外，你可以通过`@InitBinder`注册控制器特有的`Formatter`实现，如下所示：
+
+    @Controller
+    public class FormController {
+        
+        @InitBinder
+        protected void initBinder(WebDataBinder binder) {
+            binder.addCustomFormatter(new DateFormatter("yyyy-MM-dd"));
+        }
+    }
 
 
 ## 补充 ##
@@ -1736,21 +1818,45 @@
  - `Aspect`切面：横切多个类的模块，事务管理就是一个很好的例子，在`Spring AOP`中，切面是通过普通类(`schema-based`方式)或者注解有`@Aspect`的普通类(`@Aspect`风格)
  - `Joint point`连接点：程序执行过程中的一点，例如方法的执行或者异常的处理，在`Spring AOP`中通常表示方法的执行
  - `Advice`增强或通知：在特定连接点被切面执行的的动作，包括前向`before`、`after`和环绕`around`，很多`aop`框架将`advice`看成是一个拦截器，维护了连接点关联的拦截器链
- - `Pointcut`切点:匹配连接点的断言，`advice`和切点表达式关联，并且可以运行在任何和该切点匹配的连接点上(例如某个特定名称方法的执行)
+ - `Pointcut`切点:控制增强方法何时执行，`Spring AOP`只支持`Spring bean`的方法执行切点，所以切点可以认为是`Spring bean`的方法执行
  - `introduction`：
  - `target object`:被一个或者多个切面增强的对象，因为`Spring AOP`是通过运行时代理实现的，因此目标对象通常是被代理的对象
  - `AOP 代理`：`AOP`框架创建的对象，用来实现取切面，在`Spring`框架中，`AOP`代理是`JDK`动态代理或者`CGLIB`代理
  - `weaving`织入：将切面和其他应用类型或者对象连接创建一个增强的对象，`Spring AOP`框架在运行时织入
 
+`Spring AOP`默认采用`JDK`动态代理(面向接口)
+
+**切点**
+
+切点的声明由两部分组成：方法签名(包含任意数量的参数)和切点表达式(决定了增强方法执行的时机)，在`@AspectJ`注解风格的`AOP`中，切点签名和普通的方法声明一样，切点表达式通过`@Pointcut`注解声明(注意：**作为切点签名的方法必须返回void**)
+
+    @Pointcut("execution(* transfer(..))")  //切点表达式(pointcut expression)
+    private void anyOldTransfer() {}    //切点签名(pointcut signature)
+    
+在切点声明中，`execution`表达式是最常用的，`execution`表达式的格式如下所示：
+
+    execution(modifiers-pattern? ret-type-pattern declaring-type-pattern?name-pattern(param-pattern) throws-pattern?)
+
+除了返回类型、方法名称和参数可选外，其他的字段都是必填的，例如：
+
+    execution(public * *(..))   //任何public方法
+    execution(* set*(..))   //任何以set开头的方法
+    execution(* com.xyz.service.AccountService.*(..))   //AccountService类的任何方法
+    execution(* com.xyz.service.*.*(..))    //service包下的所有方法
+    execution(* com.xyz.service..*.*(..))   //service或其子包下的任何方法
+    
+
+
 增强方式：
 前向、后向、环绕、`returning`、`finally`、`throwing`
 
 两种方式：
-(1)`@Aspect`注解方式：允许`@Aspect`支持可以使用`@EnableAspectJAutoProxy`或者`<aop:aspect-autoproxy/>`
+(1)`@Aspect`注解方式：允许`@Aspect`支持可以使用`@EnableAspectJAutoProxy`或者`<aop:aspect-autoproxy/>`，通过`@Aspect`注解的类只能被声明为一个切面，还需要通过注解`@Component`或者`xml`方式注册到`Spring`上下文中。
 
 声明一个切面：
 
     @Aspect方式
+    
     <bean id="myAspect" class="someClass">
         //...
     </bean>
@@ -1759,6 +1865,34 @@
     public class someClass {
         
     }
+
+对于`AOP`代理的理解：
+
+    @Configuration
+    @EnableAspectJAutoProxy
+    public class AppConfig {
+        @Bean 
+        public FooService fooService() {
+            return new FooService();
+        }
+        
+        @Bean
+        public MyAspect myAspect() {
+            return new MyAspect();
+        }
+    }
+    
+    //FooService是一个普通的bean，而MyAspect是@Aspect注解的切面
+    @Aspect
+    public class MyAspect {
+        
+        @Before("execution(* FooService+.*(..))")   //声明前置增强
+        public void advice() {
+            //
+        }
+    }
+
+如上述代码，`AOP`代理实际上代理了`FooService`，在`FooService`方法执行前后(所谓的`pointcut`，切点)插入用户自定义的代码(所谓的`advice`，增强)
 
 声明返回增强(`returning advice`)：`returning`属性值名称必须和方法参数名称保持一致
 
@@ -2058,6 +2192,10 @@
 		}
 	}
 
+## 静态资源处理 ##
+方法1：使用`<mvc:default-servlet-handler/>`注解，将访问静态资源请求转发给`Servlet`容器默认的`Servlet`处理，这个注解只适合`url-pattern`配置成`/`的`DispatcherServlet`，访问根路径就是`webapp`，例如访问`http://localhost:8090/view/hello.html`，会返回`webapp`目录下`view/hello.html`文件。
+
+方法2：使用注解`<mvc:resources location="/pic/" mapping="/pic/**">`，`location`属性可以有多种形式，例如`/`表示相对于`webapp`根目录的路径，即静态资源目录必须要放在`webapp`根目录下面，或者`classpath:/META-INF/public-web-resources/`会寻找`classpath`下包含`/META-INF/public-web-resources`目录的`jar`包
   [1]: https://blog.csdn.net/ye1992/article/details/49998511
   
   

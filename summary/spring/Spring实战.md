@@ -21,20 +21,204 @@
 
 3、如果`bean`实现了`BeanNameAware`接口，`Spring`将`bean`的`ID`传递给`setBeanName()`方法
 
-4、如果`bean`实现了`BeanFactoryAware`接口，`Spring`调用`setBeanFactory()`方法将`BeanFactory`实例传入
+4、如果`bean`实现了`BeanClassLoader`接口，`spring`会将`classLoader`传入`setBeanClassLoader()`方法
 
-5、如果`bean`实现了`ApplicationContextAware`接口，`Spring`将调用`setApplicationContext()`方法，将`ApplicationContext`实例传入
+5、如果`bean`实现了`BeanFactoryAware`接口，`Spring`调用`setBeanFactory()`方法将`BeanFactory`实例传入
 
-6、如果实现了`BeanPostProcessor`接口，将调用其`postProcessBeforeInitialization()`方法
+6、如果`bean`实现了`ApplicationContextAware`接口，`Spring`将调用`setApplicationContext()`方法，将`ApplicationContext`实例传入
 
-7、如果实现了`InitializingBean`接口，将调用`afterPropertiesSet()`方法，如果`bean`内部声明了`init-method`初始化方法，那么该方法也会被调用
+7、如果实现了`BeanPostProcessor`接口，将调用其`postProcessBeforeInitialization()`方法
 
-8、如果实现了`BeanPostProcessor`接口，将调用其`postProcessorAfterInitialization()`方法
+8、如果实现了`InitializingBean`接口，将调用`afterPropertiesSet()`方法，如果`bean`内部声明了`init-method`初始化方法，那么该方法也会被调用
 
-9、此时`bean`已经初始化完成，会被注册到上下文中等待使用直到最后被销毁
+9、如果实现了`BeanPostProcessor`接口，将调用其`postProcessorAfterInitialization()`方法
 
-10、如果实现了`DisposableBean`接口，将会调用`destroy()`方法，或者声明了`destroy-method`，该方法也会被调用
+10、此时`bean`已经初始化完成，会被注册到上下文中等待使用直到最后被销毁
 
+11、如果实现了`DisposableBean`接口，将会调用`destroy()`方法，或者声明了`destroy-method`，该方法也会被调用
+
+这些步骤的流程在`org.springframework.beans.factory.support.AbstractAutowireCapableBeanFactory#doCreateBean`方法中：
+
+    protected Object doCreateBean(final String beanName, final RootBeanDefinition mbd, final Object[] args) {
+		// Instantiate the bean.
+		BeanWrapper instanceWrapper = null;
+		if (mbd.isSingleton()) {
+			instanceWrapper = this.factoryBeanInstanceCache.remove(beanName);
+		}
+		if (instanceWrapper == null) {
+			instanceWrapper = createBeanInstance(beanName, mbd, args);  //(1)构造bean实例
+		}
+		final Object bean = (instanceWrapper != null ? instanceWrapper.getWrappedInstance() : null);
+		Class<?> beanType = (instanceWrapper != null ? instanceWrapper.getWrappedClass() : null);
+
+		// Allow post-processors to modify the merged bean definition.
+		synchronized (mbd.postProcessingLock) {
+			if (!mbd.postProcessed) {
+				applyMergedBeanDefinitionPostProcessors(mbd, beanType, beanName);
+				mbd.postProcessed = true;
+			}
+		}
+
+		// Eagerly cache singletons to be able to resolve circular references
+		// even when triggered by lifecycle interfaces like BeanFactoryAware.
+		boolean earlySingletonExposure = (mbd.isSingleton() && this.allowCircularReferences &&
+				isSingletonCurrentlyInCreation(beanName));
+		if (earlySingletonExposure) {
+			if (logger.isDebugEnabled()) {
+				logger.debug("Eagerly caching bean '" + beanName +
+						"' to allow for resolving potential circular references");
+			}
+			addSingletonFactory(beanName, new ObjectFactory<Object>() {
+				@Override
+				public Object getObject() throws BeansException {
+					return getEarlyBeanReference(beanName, mbd, bean);
+				}
+			});
+		}
+
+		// Initialize the bean instance.
+		Object exposedObject = bean;
+		try {
+			populateBean(beanName, mbd, instanceWrapper);   //(2)装配属性
+			if (exposedObject != null) {
+				exposedObject = initializeBean(beanName, exposedObject, mbd);   (3)初始化bean，这个方法可以展开，具体包括调用Aware接口的方法/init-method和BeanPostProcessor回调
+			}
+		}
+		catch (Throwable ex) {
+			if (ex instanceof BeanCreationException && beanName.equals(((BeanCreationException) ex).getBeanName())) {
+				throw (BeanCreationException) ex;
+			}
+			else {
+				throw new BeanCreationException(mbd.getResourceDescription(), beanName, "Initialization of bean failed", ex);
+			}
+		}
+
+		if (earlySingletonExposure) {
+			Object earlySingletonReference = getSingleton(beanName, false);
+			if (earlySingletonReference != null) {
+				if (exposedObject == bean) {
+					exposedObject = earlySingletonReference;
+				}
+				else if (!this.allowRawInjectionDespiteWrapping && hasDependentBean(beanName)) {
+					String[] dependentBeans = getDependentBeans(beanName);
+					Set<String> actualDependentBeans = new LinkedHashSet<String>(dependentBeans.length);
+					for (String dependentBean : dependentBeans) {
+						if (!removeSingletonIfCreatedForTypeCheckOnly(dependentBean)) {
+							actualDependentBeans.add(dependentBean);
+						}
+					}
+					if (!actualDependentBeans.isEmpty()) {
+						throw new BeanCurrentlyInCreationException(beanName,
+								"Bean with name '" + beanName + "' has been injected into other beans [" +
+								StringUtils.collectionToCommaDelimitedString(actualDependentBeans) +
+								"] in its raw version as part of a circular reference, but has eventually been " +
+								"wrapped. This means that said other beans do not use the final version of the " +
+								"bean. This is often the result of over-eager type matching - consider using " +
+								"'getBeanNamesOfType' with the 'allowEagerInit' flag turned off, for example.");
+					}
+				}
+			}
+		}
+
+		// Register bean as disposable.
+		try {
+			registerDisposableBeanIfNecessary(beanName, bean, mbd);
+		}
+		catch (BeanDefinitionValidationException ex) {
+			throw new BeanCreationException(mbd.getResourceDescription(), beanName, "Invalid destruction signature", ex);
+		}
+
+		return exposedObject;
+	}
+    
+    //initializeBean方法
+    protected Object initializeBean(final String beanName, final Object bean, RootBeanDefinition mbd) {
+		if (System.getSecurityManager() != null) {
+			AccessController.doPrivileged(new PrivilegedAction<Object>() {
+				@Override
+				public Object run() {
+					invokeAwareMethods(beanName, bean);
+					return null;
+				}
+			}, getAccessControlContext());
+		}
+		else {
+			invokeAwareMethods(beanName, bean); //调用Aware方法
+		}
+
+		Object wrappedBean = bean;
+		if (mbd == null || !mbd.isSynthetic()) {
+			wrappedBean = applyBeanPostProcessorsBeforeInitialization(wrappedBean, beanName); //调用BeanPostProcessor.postProcessBeforeInitialization方法处理bean
+		}
+
+		try {
+			invokeInitMethods(beanName, wrappedBean, mbd);  //如果实现了InitializingBean接口，调用其afterPropertiesSet回调；如果声明了init-method，那么调用该方法
+		}
+		catch (Throwable ex) {
+			throw new BeanCreationException(
+					(mbd != null ? mbd.getResourceDescription() : null),
+					beanName, "Invocation of init method failed", ex);
+		}
+
+		if (mbd == null || !mbd.isSynthetic()) {
+			wrappedBean = applyBeanPostProcessorsAfterInitialization(wrappedBean, beanName);  //调用BeanPostProcessor.postProcessAfterInitialization方法处理bean
+		}
+		return wrappedBean;
+	}
+	
+	//invokeAwareMethods
+	private void invokeAwareMethods(final String beanName, final Object bean) {
+		if (bean instanceof Aware) {
+			if (bean instanceof BeanNameAware) {    //实现BeanNameAware，设置bean name
+				((BeanNameAware) bean).setBeanName(beanName);
+			}
+			if (bean instanceof BeanClassLoaderAware) { //实现BeanClassLoader，设置BeanClassLoader
+				((BeanClassLoaderAware) bean).setBeanClassLoader(getBeanClassLoader());
+			}
+			if (bean instanceof BeanFactoryAware) { //实现BeanFactoryAware，设置BeanFactoryAware
+				((BeanFactoryAware) bean).setBeanFactory(AbstractAutowireCapableBeanFactory.this);
+			}
+		}
+	}
+	
+	//invokeInitMethods
+	protected void invokeInitMethods(String beanName, final Object bean, RootBeanDefinition mbd)
+			throws Throwable {
+
+		boolean isInitializingBean = (bean instanceof InitializingBean);    //实现InitializingBean接口，调用其afterPropertiesSet回调方法
+		if (isInitializingBean && (mbd == null || !mbd.isExternallyManagedInitMethod("afterPropertiesSet"))) {
+			if (logger.isDebugEnabled()) {
+				logger.debug("Invoking afterPropertiesSet() on bean with name '" + beanName + "'");
+			}
+			if (System.getSecurityManager() != null) {
+				try {
+					AccessController.doPrivileged(new PrivilegedExceptionAction<Object>() {
+						@Override
+						public Object run() throws Exception {
+							((InitializingBean) bean).afterPropertiesSet();
+							return null;
+						}
+					}, getAccessControlContext());
+				}
+				catch (PrivilegedActionException pae) {
+					throw pae.getException();
+				}
+			}
+			else {
+				((InitializingBean) bean).afterPropertiesSet();
+			}
+		}
+        
+        //声明了自定义的init-method，调用其初始化方法
+		if (mbd != null) {
+			String initMethodName = mbd.getInitMethodName();
+			if (initMethodName != null && !(isInitializingBean && "afterPropertiesSet".equals(initMethodName)) &&
+					!mbd.isExternallyManagedInitMethod(initMethodName)) {
+				invokeCustomInitMethod(beanName, bean, mbd);
+			}
+		}
+	}
+	
 ## EP2 装配Bean ##
 `Spring`提供了三种机制来装配`bean`：
 
@@ -43,7 +227,7 @@
  - 隐式的`bean`发现机制和自动装配
 
 ## 自动化装配`bean` ##
-`spring`从两个角度来实习自动化装配：
+`spring`从两个角度来实现自动化装配：
 
  - 组件扫描(`component scanning`):`Spring`会自动发现应用上下文中所创建的`bean`
  - 自动装配(`autowiring`):自动满足依赖

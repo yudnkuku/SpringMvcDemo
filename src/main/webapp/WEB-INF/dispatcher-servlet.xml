@@ -111,7 +111,7 @@
     </mvc:annotation-driven>
 
     <!--静态资源交给tomcat默认servlet-->
-    <mvc:default-servlet-handler/>
+    <!--<mvc:default-servlet-handler/>-->
 
 
     <!--扫描指定包下的component-->

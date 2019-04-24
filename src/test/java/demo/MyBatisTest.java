@@ -79,10 +79,10 @@ public class MyBatisTest {
 //            dao.getStudentInfoByName(name);
 //            sqlSession.close();
 //            删除，清空1级缓存
-            dao.deleteStudent(2);
+//            dao.deleteStudent(2);
             sqlSession.commit();
-//            sqlSession = SqlSessionUtil.getSession();
-//            dao = sqlSession.getMapper(IStudentDao.class);
+            sqlSession = SqlSessionUtil.getSession();
+            dao = sqlSession.getMapper(IStudentDao.class);
             dao.getStudentInfoByName(name);
 
         } finally {

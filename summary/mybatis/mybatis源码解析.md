@@ -860,6 +860,222 @@ ava`对象)映射成数据库中的记录
     2019-03-03 12:12:020 [main      ]  DEBUG    o.a.i.d.p.PooledDataSource  - Returned connection 1671590089 to pool.
     2019-03-03 12:12:021 [main      ]  DEBUG    s.dao.IStudentDao  - Cache Hit Ratio [spring.dao.IStudentDao]: 0.5
 
+**TransactionalCache**
+
+先看看`CachingExecutor`的`query`方法：
+
+    public <E> List<E> query(MappedStatement ms, Object parameterObject, RowBounds rowBounds, ResultHandler resultHandler, CacheKey key, BoundSql boundSql)
+      throws SQLException {
+        Cache cache = ms.getCache();
+        if (cache != null) {
+          flushCacheIfRequired(ms);
+          if (ms.isUseCache() && resultHandler == null) {
+            ensureNoOutParams(ms, parameterObject, boundSql);
+            @SuppressWarnings("unchecked")
+            List<E> list = (List<E>) tcm.getObject(cache, key);
+            if (list == null) {
+              list = delegate.<E> query(ms, parameterObject, rowBounds, resultHandler, key, boundSql);
+              tcm.putObject(cache, key, list); // issue #578. Query must be not synchronized to prevent deadlocks
+            }
+            return list;
+          }
+        }
+        return delegate.<E> query(ms, parameterObject, rowBounds, resultHandler, key, boundSql);
+      }
+
+这里的`delegate`实际上就是`BaseExecutor`实例，`CachingExecutor`在数据库操作时实际上将操作代理给了`BaseExecutor`，这里的`tcm`实际上是`TransactionalCacheManager`实例，其内部维护了一个`Map`：
+
+    private Map<Cache, TransactionalCache> transactionalCaches = new HashMap<Cache, TransactionalCache>();
+    
+这个`Map`是`Cache`实例到`TransationalCache`的映射，`Cache`就是缓存实例， 存储了缓存`key`到查询结果的映射，下面重要解析`TransactionalCache`：
+    
+    //实现了Cache接口
+    public class TransactionalCache implements Cache {
+      
+      //将操作代理给delegate
+      private Cache delegate;
+      //标志位，提交时是否清空delegate，这里的提交是指提交给delegate
+      private boolean clearOnCommit;
+      //待新增数据，key是缓存key，value是AddEntry实例
+      private Map<Object, AddEntry> entriesToAddOnCommit;
+      //待删除数据，key是缓存key，value是RemoveEntry实例
+      private Map<Object, RemoveEntry> entriesToRemoveOnCommit;
+    
+      public TransactionalCache(Cache delegate) {
+        this.delegate = delegate;
+        this.clearOnCommit = false;
+        this.entriesToAddOnCommit = new HashMap<Object, AddEntry>();
+        this.entriesToRemoveOnCommit = new HashMap<Object, RemoveEntry>();
+      }
+      
+      //所有的操作都是代理给delegate来操作
+      @Override
+      public String getId() {
+        return delegate.getId();
+      }
+    
+      @Override
+      public int getSize() {
+        return delegate.getSize();
+      }
+    
+      @Override
+      public Object getObject(Object key) {
+        if (clearOnCommit) return null; // issue #146
+        return delegate.getObject(key);
+      }
+    
+      @Override
+      public ReadWriteLock getReadWriteLock() {
+        return null;
+      }
+      
+      //往缓存中新增内容，从remove entries中删除key对应的内容，在add entries中加入key对应的内容，等待commit
+      @Override
+      public void putObject(Object key, Object object) {
+        entriesToRemoveOnCommit.remove(key);
+        entriesToAddOnCommit.put(key, new AddEntry(delegate, key, object));
+      }
+      
+      //同上
+      @Override
+      public Object removeObject(Object key) {
+        entriesToAddOnCommit.remove(key);
+        entriesToRemoveOnCommit.put(key, new RemoveEntry(delegate, key));
+        return delegate.getObject(key);
+      }
+      
+      //清空缓存，这里的reset方法实际上将add entries和remove entries清空，然后将clearOnCommit标志位设为true
+      @Override
+      public void clear() {
+        reset();
+        clearOnCommit = true;
+      }
+      
+      //提交，这是核心方法，如果clearOnCommit是true，那么清空delegate；否则对add entries和remove entries提交，实际上是将对应的内容从delegate中新增或者删除
+      public void commit() {
+        if (clearOnCommit) {
+          delegate.clear();
+        } else {
+          for (RemoveEntry entry : entriesToRemoveOnCommit.values()) {
+            entry.commit();
+          }
+        }
+        for (AddEntry entry : entriesToAddOnCommit.values()) {
+          entry.commit();
+        }
+        //最后reset，清空add entries和remove entries
+        reset();
+      }
+      
+      //回滚，直接调用reset
+      public void rollback() {
+        reset();
+      }
+      
+      //清空add entries和remove entries
+      private void reset() {
+        clearOnCommit = false;
+        entriesToRemoveOnCommit.clear();
+        entriesToAddOnCommit.clear();
+      }
+    
+      private static class AddEntry {
+        private Cache cache;
+        private Object key;
+        private Object value;
+    
+        public AddEntry(Cache cache, Object key, Object value) {
+          this.cache = cache;
+          this.key = key;
+          this.value = value;
+        }
+        
+        //AddEntry的提交方法， 将内容放入缓存中
+        public void commit() {
+          cache.putObject(key, value);
+        }
+      }
+    
+      private static class RemoveEntry {
+        private Cache cache;
+        private Object key;
+    
+        public RemoveEntry(Cache cache, Object key) {
+          this.cache = cache;
+          this.key = key;
+        }
+    
+        public void commit() {
+          cache.removeObject(key);
+        }
+      }
+    
+    }
+
+`CachingExecutor`中的很多操作都是调用的`TransactionalCacheManager`，进而调用对应的`TransactionalCache`：
+
+      public void commit(boolean required) throws SQLException {
+        delegate.commit(required);
+        tcm.commit();
+      }
+    
+      public void rollback(boolean required) throws SQLException {
+        try {
+          delegate.rollback(required);
+        } finally {
+          if (required) {
+            tcm.rollback();
+          }
+        }
+      }
+      
+      //找到Cache对饮的TransactionalCache，调用其clear方法，清空add entries和remove entries
+      private void flushCacheIfRequired(MappedStatement ms) {
+        Cache cache = ms.getCache();
+        if (cache != null && ms.isFlushCacheRequired()) {      
+          tcm.clear(cache);
+        }
+      }
+      
+二级缓存是跨`SqlSession`的，`SqlSession.commit`方法相当于是将数据提交到缓存中，如果没有清空缓存(`flushCache`为`false`)，那么两个不同的`SqlSession`进行同样的操作会从缓存中拿值，而不会查询数据库，举个例子：
+
+    @Test
+    public void testCache() {
+        SqlSession sqlSession = SqlSessionUtil.getSession();
+        try {
+            IStudentDao dao = sqlSession.getMapper(IStudentDao.class);
+            String name = "Deacon";
+            dao.getStudentInfoByName(name);
+            sqlSession.commit();    //将查询结果提交到缓存中
+            sqlSession = SqlSessionUtil.getSession();
+            dao = sqlSession.getMapper(IStudentDao.class);
+            dao.getStudentInfoByName(name); //将会从缓存中取值
+
+        } finally {
+            if(sqlSession != null) {
+                sqlSession.close();
+            }
+        }
+    }
+
+如果在`xml`中配置了`flushCache=true`，那么在调用`commit`方法后会清空所有缓存，包括一级缓存和二级缓存，那么下次查询会走`db`：
+
+    public void commit() {
+        //clearOnCommit在flushCache时会置为true
+        if (clearOnCommit) {
+          //清空delegate缓存
+          delegate.clear();
+        } else {
+          for (RemoveEntry entry : entriesToRemoveOnCommit.values()) {
+            entry.commit();
+          }
+        }
+        for (AddEntry entry : entriesToAddOnCommit.values()) {
+          entry.commit();
+        }
+        reset();
+    }
 
 ## 注册DAO接口bean ##
 首先先看一下配置文件中的定义：
@@ -885,23 +1101,23 @@ ava`对象)映射成数据库中的记录
 看下具体的实现：
 
         public void postProcessBeanDefinitionRegistry(BeanDefinitionRegistry registry) throws BeansException {
-        if (this.processPropertyPlaceHolders) {
-          processPropertyPlaceHolders();
-        }
-        //实例化ClassPathMapperScanner
-        ClassPathMapperScanner scanner = new ClassPathMapperScanner(registry);
-        scanner.setAddToConfig(this.addToConfig);
-        scanner.setAnnotationClass(this.annotationClass);
-        scanner.setMarkerInterface(this.markerInterface);
-        scanner.setSqlSessionFactory(this.sqlSessionFactory);
-        scanner.setSqlSessionTemplate(this.sqlSessionTemplate);
-        scanner.setSqlSessionFactoryBeanName(this.sqlSessionFactoryBeanName);
-        scanner.setSqlSessionTemplateBeanName(this.sqlSessionTemplateBeanName);
-        scanner.setResourceLoader(this.applicationContext);
-        scanner.setBeanNameGenerator(this.nameGenerator);
-        scanner.registerFilters();
-        //扫描basePackage下的所有接口，并将其注册到spring上下文中
-        scanner.scan(StringUtils.tokenizeToStringArray(this.basePackage, ConfigurableApplicationContext.CONFIG_LOCATION_DELIMITERS));
+            if (this.processPropertyPlaceHolders) {
+              processPropertyPlaceHolders();
+            }
+            //实例化ClassPathMapperScanner
+            ClassPathMapperScanner scanner = new ClassPathMapperScanner(registry);
+            scanner.setAddToConfig(this.addToConfig);
+            scanner.setAnnotationClass(this.annotationClass);
+            scanner.setMarkerInterface(this.markerInterface);
+            scanner.setSqlSessionFactory(this.sqlSessionFactory);
+            scanner.setSqlSessionTemplate(this.sqlSessionTemplate);
+            scanner.setSqlSessionFactoryBeanName(this.sqlSessionFactoryBeanName);
+            scanner.setSqlSessionTemplateBeanName(this.sqlSessionTemplateBeanName);
+            scanner.setResourceLoader(this.applicationContext);
+            scanner.setBeanNameGenerator(this.nameGenerator);
+            scanner.registerFilters();
+            //扫描basePackage下的所有接口，并将其注册到spring上下文中
+            scanner.scan(StringUtils.tokenizeToStringArray(this.basePackage, ConfigurableApplicationContext.CONFIG_LOCATION_DELIMITERS));
       }
       
 `ClassPathBeanDefinitionScanner.scan`方法：
@@ -922,62 +1138,62 @@ ava`对象)映射成数据库中的记录
 `ClassPathMapperScanner.doScan`方法：
 
     public Set<BeanDefinitionHolder> doScan(String... basePackages) {
-    //(1)调用父类的doScan方法
-    Set<BeanDefinitionHolder> beanDefinitions = super.doScan(basePackages);
-
-    if (beanDefinitions.isEmpty()) {
-      logger.warn("No MyBatis mapper was found in '" + Arrays.toString(basePackages) + "' package. Please check your configuration.");
-    } else {
-      for (BeanDefinitionHolder holder : beanDefinitions) {
-        GenericBeanDefinition definition = (GenericBeanDefinition) holder.getBeanDefinition();
-
-        if (logger.isDebugEnabled()) {
-          logger.debug("Creating MapperFactoryBean with name '" + holder.getBeanName() 
-              + "' and '" + definition.getBeanClassName() + "' mapperInterface");
-        }
-
-        // the mapper interface is the original class of the bean
-        // but, the actual class of the bean is MapperFactoryBean
-        //Mapper接口是bean的原始类型，但是实际类型是MapperFactoryBean
-        definition.getPropertyValues().add("mapperInterface", definition.getBeanClassName());
-        definition.setBeanClass(MapperFactoryBean.class);
-
-        definition.getPropertyValues().add("addToConfig", this.addToConfig);
-
-        boolean explicitFactoryUsed = false;
-        //如果设置了sqlSessionFactoryBeanName属性
-        if (StringUtils.hasText(this.sqlSessionFactoryBeanName)) {
-          definition.getPropertyValues().add("sqlSessionFactory", new RuntimeBeanReference(this.sqlSessionFactoryBeanName));
-          explicitFactoryUsed = true;
-        } else if (this.sqlSessionFactory != null) {
-          definition.getPropertyValues().add("sqlSessionFactory", this.sqlSessionFactory);
-          explicitFactoryUsed = true;
-        }
-
-        if (StringUtils.hasText(this.sqlSessionTemplateBeanName)) {
-          if (explicitFactoryUsed) {
-            logger.warn("Cannot use both: sqlSessionTemplate and sqlSessionFactory together. sqlSessionFactory is ignored.");
+        //(1)调用父类的doScan方法
+        Set<BeanDefinitionHolder> beanDefinitions = super.doScan(basePackages);
+    
+        if (beanDefinitions.isEmpty()) {
+          logger.warn("No MyBatis mapper was found in '" + Arrays.toString(basePackages) + "' package. Please check your configuration.");
+        } else {
+          for (BeanDefinitionHolder holder : beanDefinitions) {
+            GenericBeanDefinition definition = (GenericBeanDefinition) holder.getBeanDefinition();
+    
+            if (logger.isDebugEnabled()) {
+              logger.debug("Creating MapperFactoryBean with name '" + holder.getBeanName() 
+                  + "' and '" + definition.getBeanClassName() + "' mapperInterface");
+            }
+    
+            // the mapper interface is the original class of the bean
+            // but, the actual class of the bean is MapperFactoryBean
+            //Mapper接口是bean的原始类型，但是实际类型是MapperFactoryBean
+            definition.getPropertyValues().add("mapperInterface", definition.getBeanClassName());
+            definition.setBeanClass(MapperFactoryBean.class);
+    
+            definition.getPropertyValues().add("addToConfig", this.addToConfig);
+    
+            boolean explicitFactoryUsed = false;
+            //如果设置了sqlSessionFactoryBeanName属性
+            if (StringUtils.hasText(this.sqlSessionFactoryBeanName)) {
+              definition.getPropertyValues().add("sqlSessionFactory", new RuntimeBeanReference(this.sqlSessionFactoryBeanName));
+              explicitFactoryUsed = true;
+            } else if (this.sqlSessionFactory != null) {
+              definition.getPropertyValues().add("sqlSessionFactory", this.sqlSessionFactory);
+              explicitFactoryUsed = true;
+            }
+    
+            if (StringUtils.hasText(this.sqlSessionTemplateBeanName)) {
+              if (explicitFactoryUsed) {
+                logger.warn("Cannot use both: sqlSessionTemplate and sqlSessionFactory together. sqlSessionFactory is ignored.");
+              }
+              definition.getPropertyValues().add("sqlSessionTemplate", new RuntimeBeanReference(this.sqlSessionTemplateBeanName));
+              explicitFactoryUsed = true;
+            } else if (this.sqlSessionTemplate != null) {
+              if (explicitFactoryUsed) {
+                logger.warn("Cannot use both: sqlSessionTemplate and sqlSessionFactory together. sqlSessionFactory is ignored.");
+              }
+              definition.getPropertyValues().add("sqlSessionTemplate", this.sqlSessionTemplate);
+              explicitFactoryUsed = true;
+            }
+    
+            if (!explicitFactoryUsed) {
+              if (logger.isDebugEnabled()) {
+                logger.debug("Enabling autowire by type for MapperFactoryBean with name '" + holder.getBeanName() + "'.");
+              }
+              definition.setAutowireMode(AbstractBeanDefinition.AUTOWIRE_BY_TYPE);
+            }
           }
-          definition.getPropertyValues().add("sqlSessionTemplate", new RuntimeBeanReference(this.sqlSessionTemplateBeanName));
-          explicitFactoryUsed = true;
-        } else if (this.sqlSessionTemplate != null) {
-          if (explicitFactoryUsed) {
-            logger.warn("Cannot use both: sqlSessionTemplate and sqlSessionFactory together. sqlSessionFactory is ignored.");
-          }
-          definition.getPropertyValues().add("sqlSessionTemplate", this.sqlSessionTemplate);
-          explicitFactoryUsed = true;
         }
-
-        if (!explicitFactoryUsed) {
-          if (logger.isDebugEnabled()) {
-            logger.debug("Enabling autowire by type for MapperFactoryBean with name '" + holder.getBeanName() + "'.");
-          }
-          definition.setAutowireMode(AbstractBeanDefinition.AUTOWIRE_BY_TYPE);
-        }
-      }
-    }
-
-    return beanDefinitions;
+    
+        return beanDefinitions;
       }
       
 (1)`ClassPathBeanDefinitionScanner.doScan`方法：
