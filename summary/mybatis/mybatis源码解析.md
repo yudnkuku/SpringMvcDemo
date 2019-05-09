@@ -1077,6 +1077,94 @@ ava`对象)映射成数据库中的记录
         reset();
     }
 
+**Mapper配置文件<cache>元素解析**
+
+`Mapper`配置文件中的`<cache>`元素解析在`XMLMapperBuilder`中完成，其源码如下：
+
+    private void cacheElement(XNode context) throws Exception {
+        if (context != null) {
+          String type = context.getStringAttribute("type", "PERPETUAL");    //缓存类型，默认是PerpetualCache
+          Class<? extends Cache> typeClass = typeAliasRegistry.resolveAlias(type);
+          String eviction = context.getStringAttribute("eviction", "LRU");  //清除策略，默认是LRU，即最近少使用算法
+          Class<? extends Cache> evictionClass = typeAliasRegistry.resolveAlias(eviction);
+          Long flushInterval = context.getLongAttribute("flushInterval");   //缓存刷新时间间隔
+          Integer size = context.getIntAttribute("size");   //引用数目
+          boolean readWrite = !context.getBooleanAttribute("readOnly", false);  //是否只读
+          boolean blocking = context.getBooleanAttribute("blocking", false);
+          Properties props = context.getChildrenAsProperties(); //获取<cache>的<property>子元素，设置name,value对修改缓存参数
+          builderAssistant.useNewCache(typeClass, evictionClass, flushInterval, size, readWrite, blocking, props);   //构建缓存实例，传入props
+        }
+      }
+
+`MapperBuilderAssistant.useNewCache`方法：
+
+    public Cache useNewCache(Class<? extends Cache> typeClass,
+      Class<? extends Cache> evictionClass,
+      Long flushInterval,
+      Integer size,
+      boolean readWrite,
+      boolean blocking,
+      Properties props) {
+        Cache cache = new CacheBuilder(currentNamespace)    //使用CacheBuilder构建缓存实例
+            .implementation(valueOrDefault(typeClass, PerpetualCache.class))
+            .addDecorator(valueOrDefault(evictionClass, LruCache.class))
+            .clearInterval(flushInterval)
+            .size(size)
+            .readWrite(readWrite)
+            .blocking(blocking)
+            .properties(props)
+            .build();
+        configuration.addCache(cache);  //添加到Configuration对象的缓存Map中
+        currentCache = cache;   //设置为当前缓存
+        return cache;
+      }
+
+`CacheBuilder.build`方法：
+
+    public Cache build() {
+        setDefaultImplementations();
+        Cache cache = newBaseCacheInstance(implementation, id); //反射创建PerpetualCache实例
+        setCacheProperties(cache);  //设置props属性，调用PerpetualCache的setter方法
+        // issue #352, do not apply decorators to custom caches
+        if (PerpetualCache.class.equals(cache.getClass())) {
+          //设置装饰器
+          for (Class<? extends Cache> decorator : decorators) {
+            cache = newCacheDecoratorInstance(decorator, cache);
+            setCacheProperties(cache);  //设置属性
+          }
+          cache = setStandardDecorators(cache); //再次封装cache
+        } else if (!LoggingCache.class.isAssignableFrom(cache.getClass())) {
+          cache = new LoggingCache(cache);
+        }
+        return cache;
+      }
+
+`setStandardDecorators`方法，再次封装`Cache`：
+
+    private Cache setStandardDecorators(Cache cache) {
+        try {
+          MetaObject metaCache = SystemMetaObject.forObject(cache);
+          if (size != null && metaCache.hasSetter("size")) {
+            metaCache.setValue("size", size);
+          }
+          if (clearInterval != null) {
+            cache = new ScheduledCache(cache);
+            ((ScheduledCache) cache).setClearInterval(clearInterval);   //如果指定flushInterval，清理时间间隔，那么会再封装一层ScheduledCache，实现定时清理的功能
+          }
+          if (readWrite) {
+            cache = new SerializedCache(cache); //如果readWrite属性为true(默认)，套一层SerializedCache，实现序列化功能
+          }
+          cache = new LoggingCache(cache);  //套一层LogginCache，打印缓存命中日志
+          cache = new SynchronizedCache(cache); //套一层SynchronizedCache，实现同步
+          if (blocking) {
+            cache = new BlockingCache(cache);
+          }
+          return cache;
+        } catch (Exception e) {
+          throw new CacheException("Error building standard cache decorators.  Cause: " + e, e);
+        }
+      }
+
 ## 注册DAO接口bean ##
 首先先看一下配置文件中的定义：
 
