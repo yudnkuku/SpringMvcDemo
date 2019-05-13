@@ -1105,7 +1105,7 @@ ava`对象)映射成数据库中的记录
       boolean readWrite,
       boolean blocking,
       Properties props) {
-        Cache cache = new CacheBuilder(currentNamespace)    //使用CacheBuilder构建缓存实例
+        Cache cache = new CacheBuilder(currentNamespace)    //使用CacheBuilder构建缓存实例，currentNamespace即namespace属性
             .implementation(valueOrDefault(typeClass, PerpetualCache.class))
             .addDecorator(valueOrDefault(evictionClass, LruCache.class))
             .clearInterval(flushInterval)
