@@ -6,7 +6,7 @@
 
 ## ChannelFuture ##
 
-`channel`的每个`outbound I/O`操作都会返回一个`ChannelFuture`，`ChannelFutrue`继承自`Future`，此`Future`接口继承自`juc`包中的`Future`接口，下面看看`Channel`中的一些`ountbound`方法
+`channel`的每个`outbound I/O`操作都会返回一个`ChannelFuture`，`ChannelFuture`继承自`Future`，此`Future`接口继承自`juc`包中的`Future`接口，下面看看`Channel`中的一些`outbound`方法
 
     ChannelFuture bind(SocketAddress localAddress);
     ChannelFuture connect(SocketAddress remoteAddress);
@@ -21,21 +21,21 @@
     ChannelFuture future = channel.connect(            //1
             new InetSocketAddress("192.168.0.1", 25));
     future.addListener(new ChannelFutureListener() {  //2
-    @Override
-    public void operationComplete(ChannelFuture future) {
-        if (future.isSuccess()) {       //3
-            ByteBuf buffer = Unpooled.copiedBuffer(
-                    "Hello", Charset.defaultCharset()); //4
-            ChannelFuture wf = future.channel().writeAndFlush(buffer);                //5
-            // ...
-        } else {
-            Throwable cause = future.cause();        //6
-            cause.printStackTrace();
+        @Override
+        public void operationComplete(ChannelFuture future) {
+            if (future.isSuccess()) {       //3
+                ByteBuf buffer = Unpooled.copiedBuffer(
+                        "Hello", Charset.defaultCharset()); //4
+                ChannelFuture wf = future.channel().writeAndFlush(buffer);                //5
+                // ...
+            } else {
+                Throwable cause = future.cause();        //6
+                cause.printStackTrace();
+            }
         }
-    }
     });
     
-1、异步连接到远程对等节点，调用立即返回`ChannelFuture`实例
+1、异步连接到远程对端节点，调用立即返回`ChannelFuture`实例
 2、操作完成后注册一个`ChannelFutureListener`
 3、当操作成功后
 4、创建一个`ByteBuf`来保存数据
@@ -118,7 +118,7 @@
 
 ![Netty Event Flow][1]
 
-`Inbound`事件从左到右由`ChannelHandler`处理，`Inbound`事件通常由`IO`线程触发，当`Channel`的状态发生改变时(例如新建立连接或者关闭连接)都会唤醒`ChannelHandler`调用相关代码处理，如果`Inbound`事件向右如果到达了`TailHandler`，那么根据你的日志等级会选择丢弃或者存入日志。例如`DefaultChannelPipeline.TailHandler`的`channelRead`实现：
+`Inbound`事件从左到右由`ChannelHandler`处理，`Inbound`事件通常由`IO`线程触发(**类似于自动触发**)，当`Channel`的状态发生改变时(例如新建立连接或者关闭连接或者从对端读取数据)都会唤醒`ChannelHandler`调用相关代码处理，如果`Inbound`事件向右到达了`TailHandler`，那么根据你的日志等级会选择丢弃或者存入日志。例如`DefaultChannelPipeline.TailHandler`的`channelRead`实现：
 
         @Override
         public void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
@@ -158,6 +158,56 @@
             }
         }
 
+常见的`inbound`事件传播方法(基于`ChannelHandlerContext`)：
+
+    fireChannelRegistered/fireChannelActive/fireChannelRead/fireChannelReadComplete/fireExceptionCaught/fireUserEventTriggered/fireChannelWritabilityChanged/fireChannelInactive
+
+这些传播方法会继续传播事件，触发下一个能够处理该事件的`ChannelHandler`，例如对于`ctx.fireChannelRegistered`方法(`DefaultChannelHandlerContext`)：
+
+    public ChannelHandlerContext fireChannelRegistered() {
+        DefaultChannelHandlerContext next = findContextInbound(MASK_CHANNEL_REGISTERED);    //在ChannelPipeline上找下一个能够处理注册事件的ChannelHandlerContext(其内部封装了对应的ChannelHandler)
+        next.invoker.invokeChannelRegistered(next); //调用ChannelHandler的channelRegistered方法
+        return this;
+    }
+    
+    //DefaultChannelHandlerInvoker
+    public void invokeChannelRegistered(final ChannelHandlerContext ctx) {
+        if (executor.inEventLoop()) {   //如果当前线程是IO线程，那么直接执行
+            invokeChannelRegisteredNow(ctx);
+        } else {
+            executor.execute(new Runnable() {   //否则开启新的线程执行任务
+                @Override
+                public void run() {
+                    invokeChannelRegisteredNow(ctx);
+                }
+            });
+        }
+    }
+    
+其他事件的传播方法同理。
+
+常见的`outbound`事件的传播方法如下(基于`ChannelHandlerContext`)：
+
+    bind/connect/write/flush/read/disconnect/close
+    
+这些事件都是由用户代码主动触发的，例如绑定端口、建立连接、写数据、读数据、关闭连接等等，例如`MessageToMessageEncoder`，将消息编码并写入`outbuffer`中，调用`ctx.write`方法，进一步会触发`pipeline`中能够处理`write`事件(`outbound`事件)的`ChannelHandler`，最后会由`DefaultChannelPipeline.HeadHandler`处理：
+
+        public void write(Object msg, ChannelPromise promise) {
+            if (!isActive()) {
+                // Mark the write request as failure if the channel is inactive.
+                if (isOpen()) {
+                    promise.tryFailure(NOT_YET_CONNECTED_EXCEPTION);
+                } else {
+                    promise.tryFailure(CLOSED_CHANNEL_EXCEPTION);
+                }
+                // release message now to prevent resource-leak
+                ReferenceCountUtil.release(msg);
+            } else {
+                outboundBuffer.addMessage(msg, promise);
+            }
+        }
+
+
 ## ChannelInitializer ##
 
 它是一个特殊的`ChannelHandler`，当`Channel`注册到`EventLoop`中时初始化`Channel`，直接看源码：
@@ -187,7 +237,16 @@
             }
         }
     }
-    }
+
+在`ServerBoostrap`中初始化`Channel`的时候会构造`ChannelInitializer`实例添加到`Channel`的`ChannelPipeline`中：
+
+        p.addLast(new ChannelInitializer<Channel>() {
+            @Override
+            public void initChannel(Channel ch) throws Exception {
+                ch.pipeline().addLast(new ServerBootstrapAcceptor(currentChildHandler, currentChildOptions,
+                        currentChildAttrs));    //构造ServerBoostrapAcceptor加入ChannelPipeline
+            }
+        });
 
 ## ServerBootstrap和Bootstrap ##
 
@@ -197,28 +256,106 @@
 
 ![ServerBootsrap和Bootstrap][2]
 
-## 基于传输的API ##
+如何理解上面的图示，其实可以从源码入手：
 
-`ChannelPipeline`实现了常用的`InterceptingFilter`模型(拦截过滤器)，`Unix`管道是另一例子：命令链接在一起，一个命令的输出连接到下一行中的输入。你可以在运行时根据需要添加`ChannelHandler`实例到`ChannelPipeline`，或者从`ChannelPipeline`中删除，这能帮助你构建高度灵活的`Netty`程序。
-如下代码，写数据到远程已连接的客户端：
-
-    Channel channel = ...; // 获取channel的引用
-    ByteBuf buf = Unpooled.copiedBuffer("your data", CharsetUtil.UTF_8); //使用Unpooled工具类构建ByteBuf
-    ChannelFuture cf = channel.writeAndFlush(buf); //调用writeAndFlush()方法异步写数据，返回ChannelFuture
+    //构造NioEventLoopGroup实例，这个类可以认为是NioEventLoop的集合，默认数量是处理器核心*2，这里的两个线程组就对应图中左右两个EventLoop集合
+    NioEventLoopGroup boss = new NioEventLoopGroup()
+    NioEventLoopGroup worker = new NioEventLoopGroup()
     
-    cf.addListener(new ChannelFutureListener() {    //添加监听回调
+    //构造ServerBootstrap实例，启动ServerChannel
+    ServerBoostrap b = new ServerBootstrap()
+    
+    //设置EventLoop线程组，boss是ServerChannel处理线程组(接受连接)，worker是Channel处理线程组(IO网络操作，读写消息)
+    b.group(boss, worker)
+    
+    //构造ServerChannel并初始化
+    Channel createChannel() {
+        EventLoop eventLoop = group().next();
+        return channelFactory().newChannel(eventLoop, childGroup);  //反射初始化，传入EventLoop和childGroup(这个线程组用来处理接收连接后创建的SocketChannel网络IO事件)
+    }
+    
+    //初始化操作就不细说了，最主要的是将ServerBootstrapAcceptor添加到Channel的pipeline中
+    p.addLast(new ChannelInitializer<Channel>() {
         @Override
-        public void operationComplete(ChannelFuture future) {
-            if (future.isSuccess()) {                //写数据成功
-                System.out.println("Write successful");
-            } else {
-                System.err.println("Write error");    //写数据失败
-                future.cause().printStackTrace();
-            }
+        public void initChannel(Channel ch) throws Exception {
+            ch.pipeline().addLast(new ServerBootstrapAcceptor(currentChildHandler, currentChildOptions,
+                    currentChildAttrs));
         }
     });
 
-## Netty核心功能之ByteBuf ##
+
+那么服务端`NioServerSocketChannel`初始化后，如何接收客户端连接呢，在`NioEventLoop`中，当服务端`ServerChannel`完成初始化之后，进行`selector`的注册：
+    
+    //AbstractChannel.AbstractUnsafe
+    public final void register(final ChannelPromise promise) {
+            if (eventLoop.inEventLoop()) {  //当前线程是否是IO线程
+                register0(promise); //如果是，直接执行注册
+            } else {
+                try {
+                    eventLoop.execute(new Runnable() {  //否则，调用execute方法
+                        @Override
+                        public void run() {
+                            register0(promise);
+                        }
+                    });
+                } catch (Throwable t) {
+                    logger.warn(
+                            "Force-closing a channel whose registration task was not accepted by an event loop: {}",
+                            AbstractChannel.this, t);
+                    closeForcibly();
+                    closeFuture.setClosed();
+                    promise.setFailure(t);
+                }
+            }
+        }
+    
+    //SingleThreadEventExecutor
+    public void execute(Runnable task) {
+        if (task == null) {
+            throw new NullPointerException("task");
+        }
+
+        boolean inEventLoop = inEventLoop();
+        if (inEventLoop) {  //如果当前线程是IO线程，那么将任务加入任务队列
+            addTask(task);
+        } else {    //否则，开启新的线程
+            startThread();
+            addTask(task);
+            if (isShutdown() && removeTask(task)) {
+                reject();
+            }
+        }
+
+        if (!addTaskWakesUp) {
+            wakeup(inEventLoop);
+        }
+    }
+    
+    //开启新的线程后会执行SingleThreadEventExecutor.this.run()方法， 进入NioEventLoop.run()方法，这个方法就是NioEventLoop的核心了，它会不断地检查IO事件和执行任务，会为每个接收的连接构造一个新的NioSocketChannel，并绑定EventLoop：
+    //NioServerSocketChannel
+    protected int doReadMessages(List<Object> buf) throws Exception {
+        SocketChannel ch = javaChannel().accept();
+
+        try {
+            if (ch != null) {
+                buf.add(new NioSocketChannel(this, childEventLoopGroup().next(), ch)); //childEventLoopGroup就是b.group(boss, worker)传入的第二个参数
+                return 1;
+            }
+        } catch (Throwable t) {
+            logger.warn("Failed to create a new channel from an accepted socket.", t);
+
+            try {
+                ch.close();
+            } catch (Throwable t2) {
+                logger.warn("Failed to close a socket.", t2);
+            }
+        }
+
+        return 0;
+    }
+    
+
+## ByteBuf ##
 
 `ByteBuf`是一个随机、顺序访问的字节序列，通常我们通过`Unpooled`中的帮助方法来创建一个新的`buffer`。
 
@@ -245,7 +382,7 @@
 
 **直接缓冲区Direct Buffer**
 
-## ChannelHandler和ChannelPipeline ##
+## ChannelHandler/ChannelPipeline/ChannelHandlerContext ##
 
 `ChannelHandler`用来处理`IO`事件或者拦截`IO`操作，并将这些事件或者操作传递给`ChannelPipeline`中的下一个`ChannelHandler`，`Netty`提供了其抽象实现类`ChannelHandlerAdapter`，一般在实际编程过程中也会直接继承`ChannelHandlerAdapter`，而不是去实现`ChannelHandler`，`ChannelHandler`是通过`ChannelHandlerContext`对象来提供(可以查看`DefaultChannelHandlerContext`的构造方法)，也是通过这个`context`对象来和它从属的`pipeline`进行交互，`ChannelHandler`可以向上或向下传递事件，动态地改变`pipeline`
 
@@ -628,7 +765,7 @@
 ## 线程模型源码分析 ##
 服务端在启动时，创建了两个`NioEventLoopGroup`，它们实际上是两个独立的`Reactor`线程池，一个用于接收客户端的`TCP`连接，另一个用于处理`I/O`相关的读写操作，或者执行系统`Task`、定时任务`Task`。
 `Netty`的`NioEventLoop`并不是一个纯粹的`I/O`线程，它除了负责`I/O`的读写之外，还兼顾处理以下两类任务。
-1、系统`Task`：通过调用`NioEventLoop`的`execute(Runnable task)`方法实现，`Netty`有很多系统`Task`，创建它们的主要原因是：当`I/O`线程和用户线程同时操作网络资源时，**为了防止并发操作导致的锁竞争，将用户线程的操作封装成`Task`放入消息队列中，由`I/O`线程负责执行，这样就实现了局部无锁化**。
+1、系统`Task`：通过调用`NioEventLoop`的`execute(Runnable task)`方法实现，`Netty`有很多系统`Task`，创建它们的主要原因是：当`I/O`线程和用户线程同时操作网络资源时，**为了防止并发操作导致的锁竞争，将用户线程的操作封装成`Task`放入任务队列中，由`I/O`线程负责执行，这样就实现了局部无锁化**。
 2、定时任务：通过调用`NioEventLoop`的`schedule(Runnble command, long  delay, TimeUnit unit)`方法实现
 
 不管是在客户端还是在服务端启动时，都会用到`NioEventLoopGroup`，例如：
@@ -778,7 +915,7 @@
         //    i.e. It's safe to attempt bind() or connect() now:
         //         because bind() or connect() will be executed *after* the scheduled registration task is executed
         //         because register(), bind(), and connect() are all bound to the same thread.
-        //上面这段话意思是：如果`Channel`的注册是在event loop线程中(eventLoop.inEventLoop()方法返回true)执行，那么到此时注册过程已经完成；否则如果是在其他线程中进行`Channel`的注册，那么注册请求会被封装成任务添加到event loop的任务队列taskQueue中等待后续在event loop相关的线程中执行该任务，因此此时尝试bind或者connect操作是安全的，因为这些操作全部都绑定到某个相同的线程中，并且会顺序执行(register->bind(connect))。注册过程参考(3)的源码解析
+        //上面这段话意思是：如果Channel的注册是在event loop线程中(eventLoop.inEventLoop()方法返回true)执行，那么到此时注册过程已经完成；否则如果是在其他线程中进行Channel的注册，那么注册请求会被封装成任务添加到event loop的任务队列taskQueue中等待后续在event loop相关的线程中执行该任务，因此此时尝试bind或者connect操作是安全的，因为这些操作全部都绑定到某个相同的线程中，并且会顺序执行(register->bind(connect))。注册过程参考(3)的源码解析
         return regFuture;
     }
         
