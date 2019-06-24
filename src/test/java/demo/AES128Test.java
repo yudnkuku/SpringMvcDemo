@@ -3,10 +3,10 @@ package demo;
 import org.apache.commons.codec.binary.Base64;
 import org.junit.Test;
 
-import javax.crypto.Cipher;
-import javax.crypto.KeyGenerator;
-import javax.crypto.SecretKey;
+import javax.crypto.*;
 import javax.crypto.spec.SecretKeySpec;
+import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 
 public class AES128Test {
@@ -67,4 +67,35 @@ public class AES128Test {
         return new String(decrypted, "utf-8");
     }
 
+    @Test
+    public void test() {
+        try {
+            String content = "ff01";
+            String password = "fiberhomesodngrp";
+            SecretKeySpec key = new SecretKeySpec(password.getBytes(), "AES");
+            Cipher cipher = Cipher.getInstance("AES/ECB/NoPadding");
+            byte[] byteContent = hexStr2byteArray(content);
+            cipher.init(Cipher.ENCRYPT_MODE, key);// 初始化
+            byte[] result = cipher.doFinal(byteContent);
+        } catch (NoSuchAlgorithmException e) {
+            e.printStackTrace();
+        } catch (NoSuchPaddingException e) {
+            e.printStackTrace();
+        } catch (InvalidKeyException e) {
+            e.printStackTrace();
+        } catch (IllegalBlockSizeException e) {
+            e.printStackTrace();
+        } catch (BadPaddingException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private byte[] hexStr2byteArray(String hex) {
+        byte[] b = new byte[hex.length() / 2];
+        for (int i = 0; i < b.length; i++) {
+            String tmp = hex.substring(2*i, 2*i+2);
+            b[i] = (byte) Integer.parseInt(tmp, 16);
+        }
+        return b;
+    }
 }

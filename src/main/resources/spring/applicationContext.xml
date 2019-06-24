@@ -9,12 +9,29 @@
                             http://www.springframework.org/schema/tx http://www.springframework.org/schema/tx/spring-tx.xsd
                             http://www.springframework.org/schema/aop http://www.springframework.org/schema/aop/spring-aop.xsd">
 
-    <bean id="lazyBean" class="spring.bean.LazyBean" init-method="init" lazy-init="default" scope="prototype"/>
+    <context:component-scan base-package="spring"/>
+
+    <bean id="lazyBean" class="spring.bean.LazyBean" init-method="init"
+          lazy-init="default" scope="prototype"/>
+
     <bean id="defautlBean" class="spring.bean.PreInstantiationBean">
         <property name="id" value="10"/>
         <property name="name" value="hello"/>
     </bean>
 
+    <aop:aspectj-autoproxy/>
+
+    <bean id="aspectBean" class="spring.aop.MyAspect"/>
+    <bean id="fooService" class="spring.aop.FooService"/>
+
+    <aop:config>
+
+        <aop:aspect id="myAspect" ref="aspectBean">
+            <aop:pointcut id="pointcut" expression="execution(* spring.aop.FooService.*(..))"/>
+            <aop:before method="beforeAdvice" pointcut-ref="pointcut"/>
+            <aop:after-returning method="afterRetureAdvice" pointcut-ref="pointcut" returning="retVal"/>
+        </aop:aspect>
+    </aop:config>
     <!--<bean class="spring.config.BeanPostProcessorImpl"/>-->
 
     <bean id="customMethodRep" class="spring.bean.CustomMethodReplacer"/>
@@ -24,12 +41,10 @@
         <replaced-method name="getValue" replacer="customMethodRep"/>
     </bean>
 
-    <context:component-scan base-package="spring"/>
-
     <!--jdbc configuration -->
     <context:property-placeholder location="classpath:jdbc.properties"/>
 
-    <bean id="dataSource" class="org.apache.commons.dbcp.BasicDataSource" destroy-method="close">
+    <bean id="dataSource" class="com.alibaba.druid.pool.DruidDataSource" destroy-method="close">
         <property name="url" value="${url}"/>
         <property name="driverClassName" value="${driverClassName}"/>
         <property name="username" value="${username}"/>

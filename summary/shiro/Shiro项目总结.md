@@ -520,17 +520,17 @@
         
         //DefaultFilter
         public enum DefaultFilter {
-        anon(AnonymousFilter.class),
-        authc(FormAuthenticationFilter.class),
-        authcBasic(BasicHttpAuthenticationFilter.class),
-        logout(LogoutFilter.class),
-        noSessionCreation(NoSessionCreationFilter.class),
-        perms(PermissionsAuthorizationFilter.class),
-        port(PortFilter.class),
-        rest(HttpMethodPermissionFilter.class),
-        roles(RolesAuthorizationFilter.class),
-        ssl(SslFilter.class),
-        user(UserFilter.class);
+            anon(AnonymousFilter.class),
+            authc(FormAuthenticationFilter.class),
+            authcBasic(BasicHttpAuthenticationFilter.class),
+            logout(LogoutFilter.class),
+            noSessionCreation(NoSessionCreationFilter.class),
+            perms(PermissionsAuthorizationFilter.class),
+            port(PortFilter.class),
+            rest(HttpMethodPermissionFilter.class),
+            roles(RolesAuthorizationFilter.class),
+            ssl(SslFilter.class),
+            user(UserFilter.class);
         }
 
 
@@ -561,11 +561,12 @@
         // the resulting token array would equal
         //
         //     { "authc", "roles[admin,user]", "perms[file:edit]" }
-        //
+        // 将过滤器配置以逗号分隔开
         String[] filterTokens = splitChainDefinition(chainDefinition);
 
         //each token is specific to each filter.
         //strip the name and extract any filter-specific config between brackets [ ]
+        // 去掉配置中的 [] ，例如roles[admin,user] 会变成 "roles" "admin,user"
         for (String token : filterTokens) {
             String[] nameConfigPair = toNameConfigPair(token);
 
@@ -587,15 +588,50 @@
                     "' to apply to chain [" + chainName + "] in the pool of available Filters.  Ensure a " +
                     "filter with that name/path has first been registered with the addFilter method(s).");
         }
-
+        //(1)应用过滤器链配置
         applyChainConfig(chainName, filter, chainSpecificFilterConfig);
-        //构造过滤器链，名称为chainName，该过滤器链实际上是一个filter列表集合
+        //(2)构造过滤器链，名称为chainName，该过滤器链实际上是一个filter列表集合
         NamedFilterList chain = ensureChain(chainName);
         //往过滤器链中添加filter
         chain.add(filter);
     }
-    
-`ensureChain`方法：
+
+(1)`applyChainConfig`方法：
+
+    protected void applyChainConfig(String chainName, Filter filter, String chainSpecificFilterConfig) {
+        if (log.isDebugEnabled()) {
+            log.debug("Attempting to apply path [" + chainName + "] to filter [" + filter + "] " +
+                    "with config [" + chainSpecificFilterConfig + "]");
+        }
+        if (filter instanceof PathConfigProcessor) {    //如果是PathConfigProcessor实例，则调用器processPathConfig方法，过滤器一般都会实现该接口，因此进入这个分支
+            ((PathConfigProcessor) filter).processPathConfig(chainName, chainSpecificFilterConfig);
+        } else {
+            if (StringUtils.hasText(chainSpecificFilterConfig)) {
+                //they specified a filter configuration, but the Filter doesn't implement PathConfigProcessor
+                //this is an erroneous config:
+                String msg = "chainSpecificFilterConfig was specified, but the underlying " +
+                        "Filter instance is not an 'instanceof' " +
+                        PathConfigProcessor.class.getName() + ".  This is required if the filter is to accept " +
+                        "chain-specific configuration.";
+                throw new ConfigurationException(msg);
+            }
+        }
+    }
+
+`PathMatchingFilter.processPathConfig`方法：
+
+    public Filter processPathConfig(String path, String config) {
+        String[] values = null;
+        if (config != null) {
+            values = split(config); //将过滤器链配置以逗号分隔开
+        }
+        
+        //存入appliedPaths中，key=url(chainName)，value=config
+        this.appliedPaths.put(path, values);
+        return this;
+    }
+
+(2)`ensureChain`方法：
 
     protected NamedFilterList ensureChain(String chainName) {
         //从filterChains中获取该chainName对应的filterChain
@@ -953,7 +989,7 @@
 
 **用户权限控制**
 
-首先请求先经过过滤器处理，例如我们自己会定义一个`JtisAuthorizationFilter`过滤器判断用户的访问权限，**权限验证入口还是在Subject接口中**，例如`Subject`接口中定义了很多`isPermitted`方法，那么我们需要在自定义`JtisAuthorizationFilter`中实现访问权限控制逻辑，代码如下：
+首先请求先经过过滤器处理，例如我们自己会定义一个`JtisAuthorizationFilter`过滤器判断用户的访问权限，**权限验证入口还是在Subject接口中(验证权限入口可以从过滤器链入手)**，例如`Subject`接口中定义了很多`isPermitted`方法，那么我们需要在自定义`JtisAuthorizationFilter`中实现访问权限控制逻辑，代码如下：
     
     //覆盖父类isAccessAllowed方法，判断登录用户是否有权限访问当前url
     protected boolean isAccessAllowed(ServletRequest servletRequest,
@@ -1154,6 +1190,7 @@
     </bean>
 
 可以看到`ShiroFilterFactoryBean`配置了两个属性`filters`和`filterChainDefinitions`，看下两个属性的定义：
+
     //filters属性，key=过滤器名称，value=Filter实例
     private Map<String, Filter> filters;
     
@@ -1181,6 +1218,44 @@
 
     PathMatchingFilterChainResolver chainResolver = new PathMatchingFilterChainResolver();
         chainResolver.setFilterChainManager(manager);
+
+
+根据官方文档的描述，在`web.xml`文件中需要配置过滤器，如下所示：
+
+     <filter>
+       <filter-name>shiroFilter</filter-name>
+       <filter-class>org.springframework.web.filter.DelegatingFilterProxy<filter-class>
+       <init-param>
+        <param-name>targetFilterLifecycle</param-name>
+         <param-value>true</param-value>
+       </init-param>
+     </filter>
+
+上面的过滤器类是`DelegatingFilterProxy`，这实际上是`Servlet Filter`将过滤功能代理给`Spring`管理的实现了`Filter`接口的`bean`，可以指定`targetBeanName`这个`init-param`，会自动匹配`Spring`上下文中的`targetBeanName`的`bean`作为代理的过滤器，如果没有指定会默认匹配过滤器名字：
+
+    protected void initFilterBean() throws ServletException {
+		synchronized (this.delegateMonitor) {
+			if (this.delegate == null) {
+				// If no target bean name specified, use filter name.
+				if (this.targetBeanName == null) {
+					this.targetBeanName = getFilterName();  //如果targetBeanName==null，取过滤器名称
+				}
+				// Fetch Spring root application context and initialize the delegate early,
+				// if possible. If the root application context will be started after this
+				// filter proxy, we'll have to resort to lazy initialization.
+				WebApplicationContext wac = findWebApplicationContext();
+				if (wac != null) {
+					this.delegate = initDelegate(wac);
+				}
+			}
+		}
+	}
+
+那么上述`web.xml`的配置表明会自动匹配`Spring`上下文中的`shiroFilter`这个`bean`，在`spring-shiro.xml`配置文件中，我们配置了`shiroFilter`这个`bean`：
+
+    <bean id="shiroFilter" class="org.apache.shiro.spring.web.ShiroFilterFactoryBean">
+    
+它是`ShiroFilterFactoryBean`类型，实现了`FactoryBean`接口，那么注册到`Spring`上下文中的类型实际上是`getObjectType`返回的类型，即`SpringShiroFilter`，也就是说实际上我们使用的过滤器类型是`SpringShiroFilter`，它是`ShiroFilterFactoryBean`的内部类。
 
 再看一下`SpringShiroFilter`的类图：
 
@@ -1322,8 +1397,6 @@
 最后看一下`ProxiedFilterChain`的全貌：
 
     public class ProxiedFilterChain implements FilterChain {
-
-    //TODO - complete JavaDoc
 
     private static final Logger log = LoggerFactory.getLogger(ProxiedFilterChain.class);
     //原始过滤器链

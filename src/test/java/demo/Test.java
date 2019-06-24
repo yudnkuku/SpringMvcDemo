@@ -1,12 +1,14 @@
 package demo;
 
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.codec.binary.Base64;
 import org.springframework.beans.factory.FactoryBean;
 import org.springframework.cglib.proxy.InvocationHandler;
 import org.springframework.cglib.proxy.Proxy;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.support.ClassPathXmlApplicationContext;
 import org.springframework.http.MediaType;
+import spring.aop.FooService;
 import spring.bean.ClientService;
 import spring.bean.LookupMethod;
 import spring.entity.User;
@@ -14,7 +16,9 @@ import spring.entity.UserWrapper;
 import spring.service.HelloService;
 import spring.service.StudentService;
 import spring.service.TeacherService;
+import spring.web.HelloController;
 
+import java.io.UnsupportedEncodingException;
 import java.lang.reflect.Method;
 import java.util.*;
 
@@ -63,6 +67,9 @@ public class Test {
     @org.junit.Test
     public void postProcessorTest() {
         ApplicationContext ctx = new ClassPathXmlApplicationContext("spring/applicationContext.xml");
+        FooService foo = ctx.getBean(FooService.class);
+        foo.print("yuding");
+
     }
 
 
@@ -213,6 +220,12 @@ public class Test {
     }
 
     @org.junit.Test
+    public void testHex1() {
+        int v = 10 & 255;
+        System.out.println(Integer.toString(v, 16));
+    }
+
+    @org.junit.Test
     public void testRetry() {
 //        retry:
         for (int i = 0; i < 10; i++) {
@@ -222,5 +235,22 @@ public class Test {
             }
             System.out.println(i);
         }
+    }
+
+    @org.junit.Test
+    public void testBase64() {
+        Base64 base64 = new Base64();
+        try {
+            String encoded = base64.encodeToString("张".getBytes("utf-8"));
+            System.out.println(encoded);
+        } catch (UnsupportedEncodingException e) {
+            e.printStackTrace();
+        }
+    }
+
+    @org.junit.Test
+    public void testD() {
+        String s = "21";
+        System.out.println(Integer.parseUnsignedInt(s, 16));
     }
 }

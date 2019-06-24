@@ -2,11 +2,9 @@ package demo;
 
 import org.apache.ibatis.session.SqlSession;
 import org.junit.Test;
+import org.springframework.beans.factory.annotation.Autowired;
 import spring.SqlSessionUtil;
-import spring.dao.DBlog;
-import spring.dao.DEnum;
-import spring.dao.DStudent;
-import spring.dao.IStudentDao;
+import spring.dao.*;
 import spring.entity.Blog;
 import spring.entity.LevelEnum;
 import spring.entity.Student;

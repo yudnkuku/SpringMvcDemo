@@ -44,6 +44,21 @@
 
 `ChannelFuture`表示异步`IO`操作的结果，`Netty`中所有的`IO`操作都是异步进行的，你可以添加`ChannelFutureListener`监听`IO`操作是否完成。
 
+`ChannelFuture`的状态要么是`completed`或者`uncompleted`，如果`IO`操作完成（成功、失败或者是取消），那么返回的`ChannelFuture`实例被标记为完成并携带更多的信息，例如失败的原因等，下面是状态映射表：
+
+    Uncompleted:               isDone() = false
+                               isSuccess() = false
+                               isCancelled() = false
+                               cause() = null
+                 
+    Completed Successfully:    isDone() = true
+                               isSuccess() = true
+    Completed with failure:    isDone() = true
+                               isSuccess() = false
+                               cause()  = non-null
+    Completed by cancellation: isDone() = true
+                               isCancelled() = true
+
 在等待`IO`操作完成时推荐使用`addListener`方法而不要使用`await`方法，因为`addListener`方法是非阻塞的，只是简单地将`ChannelFutureListener`监听添加到`ChannelFuture`，`IO`线程会在相关的`IO`操作完成后通知监听，`ChannelFutureListener`由于其非阻塞的特性具备良好的性能和资源利用，但是如果不适用事件驱动模型编程很难实现线性逻辑，相反，`await`是一个阻塞操作，调用线程会一直阻塞直到操作完成，尽管`await`方法很容易实现线性逻辑，但是调用线程会出现阻塞，在某些情况下还可能出现死锁，另外千万不要在`ChannelHandler`中调用`await`，因为`ChannelHandler`中的方法通常是在`IO`线程中调用，`await`会阻塞其正在等待的`IO`操作(等待`IO`操作完成，又阻塞了该`IO`线程，形成死锁)，也就是出现了死锁，如果在`IO`线程中调用`await`方法会抛出`BlockingOperationException`异常
 
     //Bad 
