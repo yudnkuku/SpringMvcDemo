@@ -26,9 +26,92 @@
 
 ![Shiro详细架构][2]
 
+
 流程交互图：
 
 ![Shiro流程图][3]
+
+可以看到每个`Realm`和`SessionDAO`都配置`Cache`用于缓存，`Shiro`框架中的很多接口都实现了`CacheManagerAware`接口，方便注入`CacheManager`，现在从配置入手分析缓存如何配置的：
+
+1、配置`SessionManager`：
+
+    <bean id="sessionManager" class="org.apache.shiro.web.session.mgt.DefaultWebSessionManager">
+        <property name="globalSessionTimeout" value="7200000"/>
+        <property name="sessionDAO" ref="sessionDAO"/>  //注入SessionDAO
+    </bean>
+
+看看`setSessionDAO`方法：
+
+    public void setSessionDAO(SessionDAO sessionDAO) {
+        this.sessionDAO = sessionDAO;
+        applyCacheManagerToSessionDAO();    //将CacheManager注入到SessionDAO中
+    }
+    
+    private void applyCacheManagerToSessionDAO() {
+        if (this.cacheManager != null && this.sessionDAO != null && this.sessionDAO instanceof CacheManagerAware) {
+            ((CacheManagerAware) this.sessionDAO).setCacheManager(this.cacheManager);
+        }
+    }
+    
+    
+2、配置`SecurityManager`：
+
+    //SecurityManager注入CacheManager
+    <bean id="securityManager" class="org.apache.shiro.web.mgt.DefaultWebSecurityManager">
+        <property name="sessionManager" ref="sessionManager"/>
+        <property name="cacheManager" ref="cacheManager"/>  //注入CacheManager，前面配置了EHCacheManager
+        <property name="authenticator" ref="jtisRealmAuthenticator"/>
+        <property name="authorizer" ref="jtisRealmAuthorizer"/>
+        <property name="realms">
+            <list>
+                <ref bean="oasystemRealm"/>
+                <ref bean="portalRealm"/>
+                <ref bean="weightRealm"/>
+            </list>
+        </property>
+    </bean>
+
+看看`DefaultWebSecurityManager`的`setCacheManager`方法：
+
+        public void setCacheManager(CacheManager cacheManager) {
+            this.cacheManager = cacheManager;
+            afterCacheManagerSet();
+        }
+
+进入`SessionsSecurityManager.afterCacheManagerSet`方法：
+
+    protected void afterCacheManagerSet() {
+        super.afterCacheManagerSet();   //(1)
+        applyCacheManagerToSessionManager();    //(2)
+    }
+
+(1)进入`RealmSecurityManager.afterCacheManagerSet`方法：
+
+    protected void afterCacheManagerSet() {
+        applyCacheManagerToRealms();
+    }
+    
+    //将CacheManager注入到Realm中(如果Realm已经注入了)
+    protected void applyCacheManagerToRealms() {
+        CacheManager cacheManager = getCacheManager();
+        Collection<Realm> realms = getRealms();
+        if (cacheManager != null && realms != null && !realms.isEmpty()) {
+            for (Realm realm : realms) {
+                if (realm instanceof CacheManagerAware) {
+                    ((CacheManagerAware) realm).setCacheManager(cacheManager);
+                }
+            }
+        }
+    }
+
+(2)进入`SessionsSecurityManager.applyCacheManagerToSessionManager`方法，将`CacheManager`注入到`SessionManager`中：
+
+    protected void applyCacheManagerToSessionManager() {
+        if (this.sessionManager instanceof CacheManagerAware) {
+            ((CacheManagerAware) this.sessionManager).setCacheManager(getCacheManager());
+        }
+    }
+
 ## 项目配置 ##
 1、配置缓存：例如后面可能会用到的密码重试缓存(将用户名称和密码重试次数缓存起来，判断用户登录时密码重试次数)
 
@@ -1815,6 +1898,81 @@
         return subject;
     }
 
+**Session缓存**
+
+先看配置文件：
+
+    <bean id="sessionDAO" class="org.apache.shiro.session.mgt.eis.EnterpriseCacheSessionDAO">
+        <property name="sessionIdGenerator" ref="sessionIdGenerator"/>
+    </bean>
+    
+`EnterpriseCacheSessionDAO`实现了顶层的`SessionDAO`接口，并且具备缓存特性
+
+贴图`EnterpriseCacheSessionDAO`
+
+看看顶层父类`SessionDAO`声明的方法：
+
+贴图`SessionDAO`
+
+看看`create`方法的实现，`CachingSessionDAO`：
+
+    public Serializable create(Session session) {
+        Serializable sessionId = super.create(session); //(1)
+        cache(session, sessionId);  (2)
+        return sessionId;
+    }
+
+(1)`AbstractSessionDAO.create`方法：
+
+    public Serializable create(Session session) {
+        Serializable sessionId = doCreate(session); //生成sessionId
+        verifySessionId(sessionId);
+        return sessionId;
+    }
+
+(2)`cache`方法，将`Session`实例缓存：
+
+    protected void cache(Session session, Serializable sessionId) {
+        if (session == null || sessionId == null) {
+            return;
+        }
+        Cache<Serializable, Session> cache = getActiveSessionsCacheLazy();
+        if (cache == null) {
+            return;
+        }
+        cache(session, sessionId, cache);   //将session作为value缓存，key是sessionId
+    }
+
+`getActiveSessionsCacheLazy`方法：
+
+     private Cache<Serializable, Session> getActiveSessionsCacheLazy() {
+        if (this.activeSessions == null) {
+            this.activeSessions = createActiveSessionsCache();
+        }
+        return activeSessions;
+    }
+    
+    protected Cache<Serializable, Session> createActiveSessionsCache() {
+        Cache<Serializable, Session> cache = null;
+        CacheManager mgr = getCacheManager();   //获取CacheManager
+        if (mgr != null) {
+            String name = getActiveSessionsCacheName(); //获取active sessions的缓存名称，默认是 private String activeSessionsCacheName = ACTIVE_SESSION_CACHE_NAME;(shiro-activeSessionCache)
+            cache = mgr.getCache(name);
+        }
+        return cache;
+    }
+    
+上面的方法实际上是从缓存管理器中获取`active sessions`缓存，因此在缓存配置文件`ehcache.xml`中要配置名为`shiro-activeSessionCache`的缓存：
+
+    <cache name="shiro-activeSessionCache"
+           maxEntriesLocalHeap="3000"
+           eternal="true"
+           overflowToDisk="true"
+           diskPersistent="true"
+           diskExpiryThreadIntervalSeconds="600"
+           statistics="true">
+    </cache>
+
 
   [1]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/shiro/shiro%E6%A1%86%E6%9E%B6%E6%A6%82%E8%BF%B0.PNG
   [2]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/shiro/shiro%E6%A1%86%E6%9E%B6.PNG
@@ -1822,3 +1980,4 @@
   [4]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/shiro/SpringShiroFilter.png
   [5]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/shiro/JtisAuthenticationFilter.png
   [6]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/shiro/JtisAuthorizationFilter.png
+  [7]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/shiro/EnterpriseCacheSessionDAO.jpg
