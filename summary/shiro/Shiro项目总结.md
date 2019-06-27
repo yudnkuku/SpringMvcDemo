@@ -1898,6 +1898,58 @@
         return subject;
     }
 
+这里看看`Subject`接口声明的任务相关的方法：
+
+1、`execute`方法：
+
+    //将指定的Callable和此Subject实例绑定，然后在当前线程执行Callable任务，如果你想要在其他线程执行Callable任务，建议先使用associate方法将Callable和Subject绑定，然后结合线程池处理
+    
+    <V> V execute(Callable<V> callable) throws ExecutionException;
+    void execute(Runnable runnable);    //同上
+    
+实现（`DelegatingSubject`）：
+
+    public <V> V execute(Callable<V> callable) throws ExecutionException {
+        Callable<V> associated = associateWith(callable);   //associateWith绑定，返回SubjectCallable实例
+        try {
+            return associated.call();   //执行任务
+        } catch (Throwable t) {
+            throw new ExecutionException(t);
+        }
+    }
+    
+    //SubjectCallable.call方法，先将subject绑定到当前线程(ThreadLocal)，这里的ThreadLocal就起到Subject线程私有的作用，然后执行任务，最后恢复到原来的线程状态
+    public V call() throws Exception {
+        try {
+            threadState.bind();
+            return doCall(this.callable);
+        } finally {
+            threadState.restore();
+        }
+    }
+    
+    //上面是一个编程范式，在ThreadState.bind方法中有说明
+    ThreadState state = //acquire or instantiate as necessary
+    try {
+        state.bind();
+        doSomething();  //execute any logic downstream logic that might need to access to state
+    } finally {
+        state.restore();
+    }
+
+2、`associateWith`方法：
+    
+    //将任务和Subject绑定
+    
+    <V> Callable<V> associateWith(Callable<V> callable);
+    Runnable associateWith(Runnable runnable);
+
+实现（`DelegatingSubject`）：
+
+    public <V> Callable<V> associateWith(Callable<V> callable) {
+        return new SubjectCallable<V>(this, callable);
+    }
+
 **Session缓存**
 
 先看配置文件：
