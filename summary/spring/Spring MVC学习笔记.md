@@ -171,7 +171,7 @@
     
 
     <bean id="userPreferences" class="com.foo.UserPreferences" scope="session">
-        <aop:scoped-proxy/>
+        <aop:scoped-proxy/> //声明的实际上是一个代理类
     </bean>
     
     <bean id="userManager" class="com.foo.UserManager">
@@ -419,7 +419,8 @@
         ...
     }
 
-`<context:component-scan>`隐式地启用了`<context:annotation-config>`的功能，因此如果使用了注解`<context:component-scan>`则可以不用注解`<context:annotation-config>`
+`<context:component-scan>`隐式地启用了`<context:annotation-config>`的功能，因此如果使用了注解`<context:component-scan>`则可以不用注解`<context:annotation-config>`，`<context:component-scan>`会扫描类路径下注解有`@Component/@Repository/@Service/@Controller/@RestController/@ControllerAdvice/@Configuration`的类，并将它们作为`bean`注册到`Spring`的上下文。
+
 ## 1.9.3 使用过滤器自定义扫描 ##
 定义注解`@ComponentScan`中的`includeFilter`和`excludeFilter`来包含/排除某些特定的类
 `Filter Types`列表：
@@ -441,6 +442,21 @@
     public class AppConfig {
         ...
     }
+
+`@Filter`是`@Component`的一个内部注解，有四个成员变量：`type(默认是FilterType.ANNOTATION)`、`value`、`classes`、`pattern(当type为FilterType.ASPECTJ时作为AspectJ风格的模式匹配，当type为FilterType.REGEX时作为正则表达式风格的模式匹配)`
+
+上面的配置等价于`xml`如下：
+
+    <beans>
+        <context:component-scan base-package="org.example">
+            <context:include-filter type="regex"
+                    expression=".*Stub.*Repository"/>
+            <context:exclude-filter type="annotation"
+                    expression="org.springframework.stereotype.Repository"/>
+        </context:component-scan>
+    </beans>
+    
+
 
 ## 1.9.4 在components内部定义bean元数据 ##
 `Spring component`内部也可以定义`bean`的元数据，这和在`Configuration`内部定义`bean`元数据一样
@@ -562,6 +578,7 @@
         service.setUserPreferences(userPreferences());
         return service;
     }
+    
 注解`@SessionScope`是一个组合注解,表示作用在`session`作用域，并且指明`proxyMode`为`ScopedProxyMode.TARGET_CLASS`：
 
     @Scope(WebApplicationContext.SCOPE_SESSION)//@Scope("session")
@@ -608,6 +625,7 @@
             return new B();
         }
     }
+    
 当实例化上下文时，仅需要提供`ConfigB`，而不需要提供`ConfigA`：
 
     public static void main(String[] args) {
@@ -1982,8 +2000,11 @@
 常用的`DataSourceTransactionManager`就实现了此接口
 
 **声明式事务管理**
+
 声明式事务管理对应用代码影响最小，和轻量级非侵入式框架的设计理念保持一致
+
 **理解Spring框架声明式事务管理实现**
+
 首先，`Spring`事务管理框架是通过`AOP`代理实现的，事务增强是通过配置元数据驱动的，`AOP`和事务元数据的结合构建了一个`AOP`代理，这个`AOP`代理使用`TransactionInterceptor`和`PlatformTransactionManager`实现来驱动方法调用的事务管理
 事务增强定义：
 
@@ -2000,6 +2021,7 @@
 `<aop:config>`标签定义确定事务增强(`<tx:advice>`)能够执行在程序中的某个合适的点，首先你需要定义一个切点去匹配某个接口中的方法，**其次再通过`<aop:advisor>`标签将切点`pointcut`和`<tx:advice>`联系起来**
 
 **使用@Transactional**
+
 除了使用配置方式声明事务，还可以使用注解来声明事务
         
         @Transactional
@@ -2032,17 +2054,164 @@
  - `<tx:advice>`标签配置具有事务语义的`AOP`增强
  - `@Transactional`注解方式
 
-事务配置属性详解，首先要清楚一点的是非事务方式是自动提交的，不管抛没抛异常，都能将数据写进数据库，而事务方式则不会，如果发生异常则会回滚：
+事务配置属性详解，首先要清楚一点的是非事务方式是**自动提交**的，不管抛没抛异常，都能将数据写进数据库，而事务方式则不会，如果发生异常则会回滚：
+
 1、`Propagation`：事务的传播属性
 
- - `REQUIRED`:支持当前事务，如果没有就新建一个
+ - `REQUIRED`:如果当前事务存在，则在当前事务中运行，否则就创建一个
  - `SUPPORTS`:支持当前事务，如果没有则以非事务方式执行
  - `MANDATORY`:支持当前事务，如果没有则抛出异常
- - `REQUIRES_NEW`:创建一个新的事务，如果存在当前事务则挂起
- - `NOT_SUPPORTED`:以非事务方式执行，如果存在当前事务则挂起
+ - `REQUIRES_NEW`:创建一个新的事务，如果存在当前事务则将当前事务挂起
+ - `NOT_SUPPORTED`:以非事务方式执行，如果存在当前事务则将当前事务挂起
  - `NEVER`:以非事务方式执行，如果存在当前事务则抛出异常
 
-`Spring`事务配置分为三大块：
+**传播机制详解**
+
+(1)`PROPAGATION_REQUIRED`：如果存在事务，则支持当前事务，否则开启一个新的事务
+
+    //事务属性PROPAGATION_REQUIRED
+    method A {
+        ...
+        method B();
+        ...
+    }
+    
+    //事务属性PROPAGATION_REQUIRED
+    method B {
+        ...
+    }
+    
+如果单独调用`B`方法，则相当于：
+
+    Connection con = null;
+    try {
+        con = getConnection();
+        con.setAutoCommit(false);
+        //方法调用
+        methodB();
+        //提交事务
+        con.commit();
+    } catch (RuntimeException e) {
+        con.rollback();
+    } finally {
+        //释放资源
+        con.close();
+    }
+
+可以看出来，如果单独调用`B`方法，由于其声明了`PROPAGATION_REQUIRED`属性，表示方法必须运行在事务环境中，如果调用方法`A`，那么会新建一个事务，在方法`A`内部调用方法`B`则会共享此事务。
+
+(2)`PROPAGATION_REQUIRED_NEW`：总是会开启一个新的事务，如果存在当前事务，那么将当前事务挂起，启用新的事务。
+
+    //PROPAGATION_REQUIRED
+    methodA() {
+        doSomethingA();
+        methodB();
+        doSomethingB();
+    }
+    
+    //PROPAGATION_REQUIRED_NEW
+    methodB() {
+        ...
+    }
+    
+方法`B`声明的是`PROPAGATION_REQUIRED_NEW`传播属性，表明该方法需要一个新的事务，如果存在当前事务，那么将当前事务挂起，那么在调用方法`A`时可以看做是如下伪代码：
+
+    TransactionManager tm = null;
+    try {
+        tm = getTransactionManager();
+        tm.begin(); //开启一个新事务
+        Transaction ts1 = tm.getTransaction();
+        doSomethingA();
+        tm.suspend();   //挂起当前事务
+        try {
+            tm.begin(); //开启另外一个新事务
+            Transaction ts2 = tm.getTransaction();
+            methodB();  //执行方法B
+            ts2.commit();   //提交事务2
+        } catch(RuntimeException e) {
+            ts2.rollback(); //方法B抛异常，回滚
+        } finally {
+            //释放资源
+        }
+        //方法B执行完后，恢复事务1
+        tm.resume(ts1);
+        doSomethingB();
+        ts1.commit();   //提交事务1
+    } catch (RuntimeException e) {
+        ts1.rollback(); //方法A抛出异常，事务1回滚
+    } finally {
+        //释放资源
+    }
+
+在这里，事务`ts1`称为外层事务，`ts2`称为内层事务，这两个式独立的两个事务，互不相干，如果方法`A`在方法`B`执行完后的`doSomethingB`抛出了异常，那么外层事务会回滚，内层事务依然会提交。
+
+(3)`PROPAGATION_NESTED`：嵌套事务，如果存在当前事务，则运行在一个嵌套事务中，否则以`PROPAGATION_REQUIRED`方法运行，例如：
+
+    //PROPAGATION_REQUIRED
+    methodA() {
+        doSomethingA();
+        methodB();
+        doSomethingB();
+    }
+    
+    //PROPAGATION_NESTED
+    methodB() {
+        ...
+    }
+
+如果调用方法`A`会产生如下伪代码：
+
+    Connection con = null;
+    Savepoint savepoint = null;
+    try {
+        con = getConnection();
+        con.setAutoCommit(false);
+        doSomethingA();
+        savepoint = con.setSavepoint();
+        try {
+            methodB();
+        } catch (RuntimeException e) {
+            con.rollback(savepoint);    //方法B抛出异常，回滚到安全点
+        } finally {
+            //释放资源
+        }
+        doSomethingB();
+        con.commit();   //提交事务
+    } catch (RuntimeException e) {
+        con.rollback(); //方法A执行过程中抛出异常会回滚
+    } finally {
+        //释放资源
+    }
+
+当方法`B`调用之前会新建一个安全点，保存当前方法执行的状态，如果方法`B`抛出异常执行失败，那么内层事务会回滚到安全点，此时事务并没有提交，如果`doSomethingB`方法抛出了异常，那么会回滚方法`B`执行的所有操作。
+
+**嵌套事务一个非常重要的概念就是内层事务依赖于外层事务，外层事务失败时会回滚内层事务的所有操作，而内层事务的失败不会引起外层事务的回滚。这一原则同样适用于提交。**
+
+而`PROPAGATION_REQUIRED_NEW`则是两个完全无关的事务，和嵌套事务有明显的区别，前者外层事务和内层事务的行为完全是独立的，而嵌套事务中内层事务依赖于外层事务。
+
+**隔离级别**
+
+隔离级别定义了一个事务可能受其他并发事务的影响，并发事务可能会导致如下问题：
+
+ - 脏读(`Dirty read`)：脏读指的是一个事务读取了另一个事务修改但未提交的数据，如果改写在稍候被回滚了，那么第一个事务获取的数据就是无效的
+ - 不可重复读(`Nonrepeatable read`)：不可重复读指的是在一个事务执行相同的查询两次以上时，每次获取的数据不一样，这是因为另外的并发事务在查询期间进行了修改
+ - 幻读(`Phantom read`)：幻读和不可重复读类似，它发生在一个事务(`T1`)读取了几行数据，接着另一个并发事务(`T2`)插入了一些数据，随后事务`T1`再次查询时会发现多出了一些本不存在的记录
+
+
+不可重复读的重点是修改，即在事务1重复读取的过程中，另一个并发事务2可能会修改数据，造成事务1多次查询到的数据不一样
+
+幻读的重点是新增和删除。
+
+隔离级别枚举：
+
+ - `Isolation.DEFAUL`：使用后端数据库默认的隔离级别
+ - `Isolation.READ_UNCOMMITTED`：最低的隔离级别，可以读取未提交数据，可能会造成脏读、不可重复读和幻读
+ - `Isolation.READ_COMMITTED`：不允许读取未提交数据，可以消除脏读，但可能造成不可重复读和幻读
+ - `Isolation.REPEATABLE_READ`：可以消除脏读、可重复读，无法消除幻读
+ - `Isolation.SERIALIZABLE`：最高的隔离级别，可以消除脏读、不可重复读和幻读
+
+ 
+**`Spring`事务配置**
 
  - 数据源`DataSource`:针对不同的数据库访问方式提供不同的数据源配置，`JDBC`(`DataSource`)/`Hibernate`(`SessionFactory`)/`JPA`(`EntityManager`)
  - 事务管理`TransactionManager`：同样事务管理和数据源也是一一对应的，分别为：`DataSourceTransactionManager`、`HibernateTransactionManager`、`JpaTransactionManager`
