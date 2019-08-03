@@ -1038,7 +1038,7 @@ ava`对象)映射成数据库中的记录
         }
       }
       
-二级缓存是跨`SqlSession`的，`SqlSession.commit`方法相当于是将数据提交到缓存中，如果没有清空缓存(`flushCache`为`false`)，那么两个不同的`SqlSession`进行同样的操作会从缓存中拿值，而不会查询数据库，举个例子：
+二级缓存是跨`SqlSession`的，`SqlSession.commit`方法相当于是将**数据提交到缓存**中（注意这里的底层缓存对象是`PerpetualCache`，不同的`SqlSession`共用一个相同的缓存实例，这也是二级缓存跨`SqlSession`的原因），如果没有清空缓存(`flushCache`为`false`)，那么两个不同的`SqlSession`进行同样的操作会从缓存中拿值，而不会查询数据库，举个例子：
 
     @Test
     public void testCache() {
@@ -1059,7 +1059,7 @@ ava`对象)映射成数据库中的记录
         }
     }
 
-如果在`xml`中配置了`flushCache=true`，那么在调用`commit`方法后会清空所有缓存，包括一级缓存和二级缓存，那么下次查询会走`db`：
+如果在`xml`中配置了`flushCache=true`(`flushCache=true`时会将一级缓存清空，将`clearOnCommit`标志位置为`true`，即在`commit`时会清空二级缓存)，那么在调用`commit`方法后会清空所有缓存，包括一级缓存和二级缓存，那么下次查询会走`db`：
 
     public void commit() {
         //clearOnCommit在flushCache时会置为true
@@ -1076,6 +1076,8 @@ ava`对象)映射成数据库中的记录
         }
         reset();
     }
+
+**小结：一级缓存在同一个SqlSession内执行相同的查询操作会走缓存，如果执行insert/update/delete/flushCache=true会清空一级缓存，走db；二级缓存是跨SqlSession的，多个SqlSession共用一个底层PerpetualCache，MyBatis提供了一个事务缓存类TransactionalCache，其内部提供了commit方法将数据库操作提交到底层缓存中，因此如果使用了二级缓存(在mapper.xml中声明了<cache>元素)，在两个SqlSession中进行两次同样的查询，且第一次查询后调用了sqlSession.commit提交(必须提交，否则缓存中没有记录)，那么第二次查询会走二级缓存，如果进行了insert/update/delete/flushCache=true，那么在commit时会清空二级缓存，下一次进行同样的查询会重新走db**
 
 **Mapper配置文件<cache>元素解析**
 
