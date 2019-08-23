@@ -497,7 +497,7 @@ sql元素可以作为可重用的SQL代码片段，包含在其他语句中
     </select>
 
 ## 4.5 缓存 ##
-`MyBatis`中的缓存分为一级缓存(本地缓存)和二级缓存，一级缓存是在`SqlSession`层面进行缓存的，即同一个`SqlSession`，多次调用同一个`Mapper`的同一个方法同一个参数只会进行一次数据库查询，第一次查询会将结果缓存到本地缓存`localcache`中，以后如果做同样的查询那么直接从缓存中拿结果，而不去查数据库。
+`MyBatis`中的缓存分为一级缓存(本地缓存)和二级缓存，一级缓存是在`SqlSession`层面进行缓存的，即同一个`SqlSession`，多次调用同一个`Mapper`的同一个方法同一个参数只会进行一次数据库查询，第一次查询会将结果缓存到本地缓存`localcache`中，以后如果做同样的查询那么直接从缓存中拿结果，而不去查数据库。二级缓存作用于在`Mapper`，可以跨越`SqlSession`
 设置二级缓存的方法也很简单：
 
     <cache />
@@ -586,7 +586,20 @@ sql元素可以作为可重用的SQL代码片段，包含在其他语句中
     
 3、`resultType`
 
-从这条语句中返回的期望类型的类的完全限定名或者别名，注意如果是集合情形，那么应该是集合包含的类型，而不能是集合本身
+从这条语句中返回的期望类型的类的完全限定名或者别名，注意如果是集合情形，那么应该是集合**包含的类型**，而不能是集合本身
+
+4、`parameterType`
+
+如果在查询语句中指明了`parameterType`属性为基础类型，例如`int`，那么可以在`sql`语句中通过`_parameter`来引用参数，例如：
+
+    <select id="selectById" parameterType="java.lang.Integer">
+        SELECT * FROM tbl_name 
+        <where>
+            <if test="_parameter != null">  //_parameter引用到int参数
+                AND id=#{id}
+            </if>
+        </where>
+    </select>
     
 **实际应用**
 
@@ -814,6 +827,15 @@ sql元素可以作为可重用的SQL代码片段，包含在其他语句中
 
 原因就是`namespace+id`是作为`Map<String, MappedStatement>`的`key`使用的，如果没有`namespace`，就剩下`id`，那么，`id`重复会导致数据互相覆盖。有了`namespace`，自然`id`就可以重复，`namespace`不同，`namespace+id`自然也就不同。
 
+## Mybatis设计模式 ##
+
+**Builder模式**
+
+`Mybatis`中提供了很对`Builder`结束的类，例如`SqlSessionFactoryBuilder`、`XMLConfigBuilder`、`XMLMapperBuilder`和`XMLStatementBuilder`，在解析`mapper`文件中的`cache`元素时会用到`CacheBuilder`
+
+`CacheBuilder`片段：
+
+    此处输入代码
 
   [1]: http://www.mybatis.org/mybatis-3/zh/configuration.html
   [2]: http://www.mybatis.org/mybatis-3/zh/configuration.html
