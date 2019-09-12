@@ -61,7 +61,7 @@
 
 因为其文件名为上一个 `Segment` 最后一条消息的 `offset` ，所以当需要查找一个指定 `offset` 的 `message` 时，通过在所有 `segment` 的文件名中进行二分查找就能找到它归属的 `segment` ，再在其 `index` 文件中找到其对应到文件上的物理位置，就能拿出该 `message` 。
 
-[segment_file][1]
+![segment_file][1]
 
 **3、消费者设计概要**
 
@@ -69,32 +69,31 @@
 
 `Kafka`消费者是消费者组的一部分，当多个消费者形成一个消费组来消费主体时，每个消费者会收到不同分区的消息，假设有一个`T1`主题，该主题有4个分区；同时我们有一个消费组`G1`，这个消费组只有一个消费者`C1`，那么消费者`C1`将会收到这4个分区的消息，如下所示：
 
-[4-1][2]
+![4-1][2]
 
 如果我们增加新的消费者`C2`到消费组`G1`，那么每个消费者将会分别收到两个分区的消息，如下所示：
 
-[4-4][3]
+![4-4][3]
 
 如果增加4个消费者，那么每个消费者将会分别收到一个分区的消息，如下所示：
 
-[2groups][4]
+![2groups][4]
 
 但如果我们继续增加消费者到这个消费组，剩余的消费者将会空闲，不会收到任何消息：
 
-[more_consumers][5]
+![more_consumers][5]
 
 总而言之，我们可以通过增加消费组的消费者来进行水平扩展提升消费能力，这也是为什么建议创建主题时使用比较多的分区数，这样可以在消费负载高的情况下增加消费者来提升性能。另外，消费者的数量不应该比分区数多，因为多出来的消费者是空闲的，没有任何帮助。
 
 `Kafka`一个很重要的特性就是，只需写入一次消息，可以支持任意多的应用读取这个消息，换句话说，每个应用都可以读到全量的消息，为了使得每个应用都能读到全量消息，应用需要有不同的消费组，对于上面的例子，假如我们新增了一个新的消费组`G2`，而这个消费组有两个消费者，那会是这样：
 
-[2groups][6]
+![2groups][6]
 
 在这个场景中，消费组`G1`和消费组`G2`都能收到`T1`主题的全量消息，在逻辑意义上来说它们属于不同的应用，最后总结起来就是：如果应用需要读取全量消息，那么请为该应用设置一个消费组，如果该应用消费能力不足，那么可以考虑在这个消费组中增加消费者。
 
 **消费者与分区重平衡**
 
 可以看到，当新的消费者加入消费组，它会消费一个或多个分区，而这些分区之前是由其他消费者负责的；另外，当消费者离开消费组（比如重启、宕机等）时，它所消费的分区会分配给其他分区。这种现象称为重平衡（`rebalance`）。重平衡是 `Kafka` 一个很重要的性质，这个性质保证了高可用和水平扩展。不过也需要注意到，在重平衡期间，所有消费者都不能消费消息，因此会造成整个消费组短暂的不可用。而且，将分区进行重平衡也会导致原来的消费者状态过期，从而导致消费者需要重新更新状态，这段期间也会降低消费性能。后面我们会讨论如何安全的进行重平衡以及如何尽可能避免。
-。
 
 消费者通过定期发送心跳（`hearbeat`）到一个作为组协调者（`group coordinator`）的 `broker` 来保持在消费组内存活。这个 `broker` 不是固定的，每个消费组都可能不同。当消费者拉取消息或者提交时，便会发送心跳。
 
@@ -110,13 +109,13 @@
 
 无论消息是否被消费，除非消息到期`Partition`从不删除消息，例如设置保留时间为2天，则消息发布2天内任何`Group`都可以消费，2天后，消息自动被删除，`Partition`会为每个`Consumer Group`保存一个偏移量，记录`Group`消费到的位置，如下图所示：
 
-[consumer_group_offset][7]
+![consumer_group_offset][7]
 
 **消费组**
 
 使用`Consumer high level API`时，同一`topic`的一条消息只能被同一个`Consumer Group`内的一个`Consumer`消费，但多个`Consumer Group`可同时消费这一消息。
 
-[consumer_group][8]
+![consumer_group][8]
 
 这是`Kafka`用来实现一个`Topic`消息的广播(发送给所有`Consumer`)和单播(发送给某一个`Consumer`)的手段，一个`Topic`可以对应多个`Consumer Group`，如果需要实现广播，只要每个`Consumer`有一个独立的`Group`即可，要实现单播只需要所有的`Consumer`在同一个`Group`里，用`Consumer Group`还可以将`Consumer`进行自由的分组而不需要多次发送消息到不同的`Topic`。
 
@@ -129,7 +128,7 @@
 
   [1]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/kafka/img/Segment_File.png
   [2]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/kafka/img/4-1.png
-  [3]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/kafka/img/4-4://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/kafka/img/4-1.png
+  [3]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/kafka/img/4-4.png
   [4]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/kafka/img/2groups.png
   [5]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/kafka/img/more_consumers.png
   [6]: https://github.com/yudnkuku/SpringMvcDemo/blob/master/summary/kafka/img/2groupcom/yudnkuku/SpringMvcDemo/blob/master/summary/kafka/img/more_consumers.png

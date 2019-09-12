@@ -31,21 +31,21 @@
 ## 阻塞IO ##
 在`Linux`中，默认情况下所有的`socket`都是`blocking`，一个典型的读操作流程大概是这样：
 
-[blocking_io_model][1]
+![blocking_io_model][1]
 
 当用户进程调用了 `recvfrom` 这个系统调用， `kernel` 就开始了 `IO` 的第一个阶段：准备数据（对于网络`IO`来说，很多时候数据在一开始还没有到达。比如，还没有收到一个完整的 `UDP` 包。这个时候 `kernel` 就要等待足够的数据到来）。这个过程需要等待，也就是说数据被拷贝到操作系统内核的缓冲区中是需要一个过程的。而在用户进程这边，整个进程会被阻塞（当然，是进程自己选择的阻塞）。当 `kernel` 一直等到数据准备好了，它就会将数据从 `kernel` 中拷贝到用户内存，然后 `kernel` 返回结果，用户进程才解除 `block` 的状态，重新运行起来。
 
 ## 非阻塞I/O ##
 `Linux`下，可以通过设置`socket`使其变为`non-blocking`，当一个`non-blocking socket`执行写操作时，流程是这样子(`poll--轮询`)：
 
-[non_blocking_io][2]
+![non_blocking_io][2]
 
 当用户进程发出 `read` 操作时，如果 `kernel` 中的数据还没有准备好，那么它并不会 `block` 用户进程，而是立刻返回一个 `error` 。从用户进程角度讲 ，它发起一个 `read` 操作后，并不需要等待，而是马上就得到了一个结果。用户进程判断结果是一个 `error` 时，它就知道数据还没有准备好，于是它可以再次发送 `read` 操作。一旦 `kernel` 中的数据准备好了，并且又再次收到了用户进程的 `system call` ，那么它马上就将数据拷贝到了用户内存，然后返回。
 
 ## IO多路复用 ##
 `IO`多路复用就是我们说的 `select，poll，epoll` ，有些地方也称这种`IO`方式为 `event driven IO` 。`select/epoll` 的好处就在于单个 `process` 就可以同时处理多个网络连接的 `IO` 。它的基本原理就是 `select，poll，epoll` 这个 `function` 会不断的轮询所负责的所有 `socket` ，当某个 `socket` 有数据到达了，就通知用户进程。
 
-[mutliplexing_io_model][3]
+![multiplexing_io_model][3]
 
 当用户进程调用了 `select`，那么整个进程会被 `block`，而同时， `kernel` 会监视所有 `select` 负责的 `socket` ，当任何一个 `socket` 中的数据准备好了， `select` 就会返回。这个时候用户进程再调用 `read` 操作，将数据从 `kernel` 拷贝到用户进程。
 
@@ -74,7 +74,7 @@
 传统的 `select/poll` 另-个致命弱点就是当你拥有一个很大的 `socket` 集合，由于网络延时或者链路空闲，任一时刻只有少部分的 `socket` 是“活跃”的，但是 `select/poll` 每次调用都会线性扫描全部的集合，导致效率呈现线性下降。 `epoll` 不存在这个问题，它只会对“活跃”的 `socket` 进行操作，这是因为在内核实现中 `epoll` 是根据每个 `fd` 上面的 `callback` 函数实现的，那么，只有“活跃”的 `socket` 才会主动的去调用 `callback` 函数，其他 `idle` 状态 `socket` 则不会。在这点上， `epoll` 实现了一个伪 `AIO`。针对 `epoll` 和 `select` 性能对比的 `benchmark` 测试表明：如果所有的 `socket` 都处于活跃态，例如一个高速 `LAN` 环境， `epoll` 并不比 `select/poll` 效率高太多；相反，如果过多使用 `epoll_ ctl` , 效率相比还有稍微的下降。但是一旦使用 `idleconnections` 模拟 `WAN` 环境，`epoll` 的效率就远在 `select/poll` 之上了。
 
 ## 异步I/O ##
-[asynchronous_io_model][4]
+![asynchronous_io_model][4]
 
 用户进程发起 `read` 操作之后，立刻就可以开始去做其它的事。而另一方面，从 `kernel` 的角度，当它受到一个 `asynchronous read` 之后，首先它会立刻返回，所以不会对用户进程产生任何 `block` 。然后，`kernel` 会等待数据准备完成，然后将数据拷贝到用户内存，当这一切都完成之后，`kernel` 会给用户进程发送一个 `signal` ，告诉它 `read` 操作完成了。
  
