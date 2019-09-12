@@ -18,7 +18,7 @@ import spring.service.StudentService;
 import spring.service.TeacherService;
 import spring.web.HelloController;
 
-import java.io.UnsupportedEncodingException;
+import java.io.*;
 import java.lang.reflect.Method;
 import java.util.*;
 
@@ -170,7 +170,7 @@ public class Test {
 
     @org.junit.Test
     public void testHashMapResize() {
-        HashMap<Object, Object> map = new HashMap<>();
+        HashMap<Object, Object> map = new HashMap<>(8);
         map.put(1, 1);
     }
 
@@ -250,7 +250,17 @@ public class Test {
 
     @org.junit.Test
     public void testD() {
-        String s = "21";
-        System.out.println(Integer.parseUnsignedInt(s, 16));
+        System.out.println(System.getProperty("java.io.tmpdir"));
+    }
+
+    @org.junit.Test
+    public void test11() {
+        try (InputStream is = new FileInputStream("d:\\hello.txt")) {
+
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 }

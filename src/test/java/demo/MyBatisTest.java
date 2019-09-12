@@ -74,11 +74,15 @@ public class MyBatisTest {
             IStudentDao dao = sqlSession.getMapper(IStudentDao.class);
             String name = "yuding";
             dao.getStudentInfoByName(name);
-//            dao.getStudentInfoByName(name);
-//            sqlSession.close();
-//            删除，清空1级缓存
-//            dao.deleteStudent(2);
             sqlSession.commit();
+            //new sqlSession
+            sqlSession = SqlSessionUtil.getSession();
+            dao = sqlSession.getMapper(IStudentDao.class);
+            Student s = new Student();
+            s.setName("deacon1");
+            dao.addStudent(s);
+            sqlSession.commit();
+            //new sqlSession
             sqlSession = SqlSessionUtil.getSession();
             dao = sqlSession.getMapper(IStudentDao.class);
             dao.getStudentInfoByName(name);

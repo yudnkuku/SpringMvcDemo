@@ -25,6 +25,8 @@
         <junit-version>4.12</junit-version>
         <logback-version>1.2.3</logback-version>
         <druid-version>1.0.18</druid-version>
+        <java.mail.version>1.5.6</java.mail.version>
+
     </properties>
 
 
@@ -251,6 +253,18 @@
             <groupId>org.java-websocket</groupId>
             <artifactId>Java-WebSocket</artifactId>
             <version>1.4.0</version>
+        </dependency>
+
+        <!--java mail-->
+        <!--<dependency>-->
+            <!--<groupId>javax.mail</groupId>-->
+            <!--<artifactId>javax.mail-api</artifactId>-->
+            <!--<version>${java.mail.version}</version>-->
+        <!--</dependency>-->
+        <dependency>
+            <groupId>com.sun.mail</groupId>
+            <artifactId>javax.mail</artifactId>
+            <version>1.6.1</version>
         </dependency>
     </dependencies>
     <!--<build>-->
