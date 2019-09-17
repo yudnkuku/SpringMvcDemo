@@ -23,8 +23,8 @@ public class OptionalUser {
         this.address = address;
     }
 
-    public String getCountry() {
-        return country;
+    public Optional<String> getCountry() {
+        return Optional.ofNullable(country);
     }
 
     public void setCountry(String country) {

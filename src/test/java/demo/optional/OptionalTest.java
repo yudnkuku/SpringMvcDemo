@@ -1,11 +1,13 @@
 package demo.optional;
 
+import lombok.extern.slf4j.Slf4j;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.NoSuchElementException;
 import java.util.Optional;
 
+@Slf4j
 public class OptionalTest {
 
     @Test(expected = NoSuchElementException.class)
@@ -49,6 +51,7 @@ public class OptionalTest {
         Assert.assertEquals("wuhan", address);
     }
 
+
     @Test
     public void testFilter() {
         User user = new User("wuhan", "China", "430073");
@@ -62,5 +65,19 @@ public class OptionalTest {
         OptionalUser user = new OptionalUser();
         String address = user.getAddress().orElse("hongshan");
         Assert.assertEquals("hongshan", address);
+    }
+
+    @Test
+    public void testOrElseAndOrElseGet() {
+        User user = new User("wuhan", "China", "430073");
+        log.debug("Using orElse");
+        User result = Optional.ofNullable(user).orElse(createNewUser());
+        log.debug("Using orElseGet");
+        result = Optional.ofNullable(user).orElseGet(this::createNewUser);
+    }
+
+    private User createNewUser() {
+        log.debug("Creating new user");
+        return new User("wuhan", "China", "430073");
     }
 }
