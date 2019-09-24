@@ -76,6 +76,19 @@
                 }
             }
 
+加载`Class`的默认规则很简单，有两个：
+
+ - 双亲委托机制
+ - 同一个加载器：类`A`引用到类`B`，则由类`A`的加载器去加载类`B`，保证引用到的类由同一个加载器加载
+
+**ContextClassLoader**
+
+在大部分情况下`jvm`默认的类加载体系已经能够满足大部分情况的使用了，那为什么还需要`ContextClassLoader`呢，这其实是因为加载`Class`的默认规则在某些情况下不能满足需求，比如`JDK`中的`jdbc API`和具体数据库厂商的实现类`SPI`的类加载问题，在`jdbc API`的类是由`BootStrap`加载的，那么如果在`jdbc API`中要用到`SPI`的实现类时，根据默认规则2，则实现类也会由`BootStrap`加载器加载，但是`SPI`实现类却没法通过根加载器加载，只能由`Ext`或者`App`加载器加载，这个时候`ContextClassLoader`就有了用武之地。
+
+具体的实现过程如下：在类`Thread`定义一个属性`classLoader`，用来供用户保存一个`classLoader`(默认是`App`)，并公开`setter`和`getter`方法，使得此线程的任何方法都可以获取此`classLoader`，然后用它来加载类，以此来打破默认规则2，说白了`ContextClassLoader`就是`Thread`的一个属性而已，没什么复杂的，只不过这个属性和底层的加载体系联系紧密。
+
+那我们看看`ContextClassLoader`是如何解决上面的问题的？以`jdbc`为例，当`DriverManager`需要加载`SPI`中的实现类时，可以获取`ContextClassLoader`(默认是`App`)，然后用此`ClassLoader`来加载`SPI`中的类。
+ 
 ## Class.getResourceAsStream和ClassLoader.getResourceAsStream ##
 先看`Class`源码：
     
@@ -801,7 +814,69 @@
 **关闭钩子线程应该快速的结束**，当程序调用`Runtime.getRuntime().exit()`方法时，是期望`JVM`关闭并退出，当`JVM`由于用户退出或者系统关闭，操作系统只会允许虚拟机在某个固定的事件内关闭并退出，因此不建议在关闭钩子中尝试任何用户交互或者执行长时间的计算任务。
 
 在某些罕见情况下，`JVM`会出现`abort`，也就是没有清理资源便停止运行。一种情况时通过外部方式关闭`JVM`，例如`Unix`系统下的`SIGKILL`信号或者`Windows`下的`TerminateProcess`调用，另外一种情况时跑飞，例如内部数据结构损坏或者尝试访问不存在的内存空间，如果`JVM abort`，那么无法保证关闭钩子是否会执行。
- 
+
+## SPI ##
+`SPI`全称`Service Provider Interface`，是`Java`提供的一套用来被第三方实现或者拓展的`API`，或者换句话说`SPI`是一种服务发现机制。
+
+要使用`SPI`比较简单，只需要按照以下几个步骤操作即可：
+
+ - 在`jar`包的`META-INF/services`目录下创建一个以接口全限定名为命名的文件，内容为实现类的全限定名
+ - 接口实现类所在的`jar`包在`classpath`下
+ - 主程序通过`java.util.ServiceLoader`动态状态实现模块，它通过扫描`META-INF/services`目录下的配置文件找到实现类的全限定名，把类加载到`JVM`
+ - `SPI`的实现类必须带有一个无参构造方法
+
+接下里看一个具体的例子，首先定义一个`SpiService`，它是一个接口：
+
+    public interface SpiService {
+        public void hello();
+    }
+    
+定义两个实现类：
+
+    public class SpiServiceImplA implements SpiService {
+        public void hello() {
+            System.out.println("SpiServiceImplA.Hello");
+        }
+    }
+    
+    public class SpiServiceImplB implements SpiService {
+        public void hello() {
+            System.out.println("SpiServiceImplB.Hello");
+        }
+    }
+
+接下来新建一个`META-INF/services`目录，里面新建一个文件，文件名字是接口的全限定名`com.demo.spi.SpiService`，文件内容如下：
+
+    com.demo.spi.SpiServiceImplA
+    com.demo.spi.SpiServiceImplB
+    
+写个测试程序：
+
+    public class SpiTest {
+
+    @Test
+    public void testSpi() {
+        ServiceLoader<SpiService> serviceLoader = ServiceLoader.load(SpiService.class);
+        
+        Iterator<SpiService> iterator = serviceLoader.iterator();
+        while (iterator.hasNext()) {
+            SpiService spiService = iterator.next();
+            
+            spiService.hello();
+        }
+    }
+    
+}
+
+结果：
+
+    SpiServiceImplA.Hello
+    SpiServiceImplB.Hello
+    
+**SPI在JDBC中的应用**
+
+
+
   [1]: https://coolshell.cn/articles/9606.html
   
   

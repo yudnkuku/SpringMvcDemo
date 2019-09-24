@@ -1,11 +1,10 @@
 package demo;
 
+import demo.optional.User;
 import org.junit.Test;
+import org.springframework.test.context.TestPropertySource;
 
-import javax.sound.midi.Soundbank;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -84,7 +83,7 @@ public class StreamTest {
     /** Intermediate **/
     @Test
     public void testConcat() {
-        Stream.concat(Stream.of(1,2,3), Stream.of(4,5))
+        Stream.concat(Stream.of(4,5), Stream.of(1,2,3))
             .forEach(System.out::println);
     }
 
@@ -97,15 +96,27 @@ public class StreamTest {
 
     @Test
     public void testFilter() {
-        Stream.of(1,2,3,4,5)
+        Stream.of(1,2,3,4)
             .filter(item -> item > 3)
             .forEach(System.out::println);
     }
 
     @Test
     public void testMap() {
+        System.out.println("test map");
         Stream.of("a", "b", "hello")
             .map(item -> item.toUpperCase())
+            .forEach(System.out::println);
+        System.out.println("test mapToDouble");
+        Stream.of(1,2,3)
+            .mapToDouble(item -> Double.valueOf(item))
+            .forEach(System.out::println);
+    }
+
+    @Test
+    public void testMapToInt() {
+        Stream.of('a', 'b', 'c')
+            .mapToInt(item -> Integer.valueOf(item))
             .forEach(System.out::println);
     }
 
@@ -129,7 +140,7 @@ public class StreamTest {
     @Test
     public void testSkip() {
         Stream.of(1,2,3,4,5)
-            .skip(2)
+            .skip(6)
             .forEach(System.out::println);
     }
 
@@ -145,6 +156,18 @@ public class StreamTest {
                     return 0;
                 }
             })
+            .forEach(System.out::println);
+    }
+
+    @Test
+    public void testSorted1() {
+        Stream.of(1,2,3,4,5)
+            .sorted()
+            .forEach(System.out::println);
+
+        System.out.println("======");
+        Stream.of(5,4,3,2,1)
+            .sorted()
             .forEach(System.out::println);
     }
 
@@ -221,4 +244,145 @@ public class StreamTest {
             .limit(10)
             .forEach(System.out::println);
     }
+
+    @Test
+    public void testCollection() {
+        List<User> users = new ArrayList<>();
+        users.add(new User("wuhan", "China", "430073"));
+        users.add(new User("shanghai", "China", "000010"));
+        users.add(new User("anlu", "China", "430000"));
+        System.out.println("======test Collectors.toCollection TreeSet");
+        Set<String> cities = users.stream()
+                                    .map(User::getAddress)
+                                    .collect(Collectors.toCollection(TreeSet::new));
+        System.out.println(cities);
+        System.out.println("======test Collectors.joining");
+        String joinAddr = users.stream()
+                                .map(User::getAddress)
+                                .collect(Collectors.joining(","));
+        System.out.println(joinAddr);
+
+        System.out.println("======test Collectors.summingDouble");
+        List<Employee> employees = new ArrayList<>();
+        employees.add(new Employee("deacon", 26, 10000, "研发"));
+        employees.add(new Employee("jack", 30, 15000,"研发"));
+        employees.add(new Employee("lina", 27, 12000, "测试"));
+        double salarySum = employees.stream()
+                                    .collect(Collectors.summingDouble(Employee::getSalary));
+        System.out.println(salarySum);
+
+        System.out.println("======tesy Collectors.groupingBy");
+        Map<String, List<Employee>> byDept
+                = employees.stream()
+                            .collect(Collectors.groupingBy(Employee::getDepartment));
+        System.out.println(byDept);
+
+        System.out.println("======test Collectors.groupingBy and summing");
+        Map<String, Double> totalByDept
+                = employees.stream()
+                            .collect(Collectors.groupingBy(Employee::getDepartment,
+                                    Collectors.summingDouble(Employee::getSalary)));
+        System.out.println(totalByDept);
+
+        System.out.println("======test Collectors.passingBy");
+        Map<Boolean, List<Employee>> highSalaryEmp
+                = employees.stream()
+                            .collect(Collectors.partitioningBy(employee -> employee.getSalary()>12000));
+        System.out.println(highSalaryEmp);
+
+    }
+
+    /** test Short-circuiting **/
+    @Test
+    public void testAllMatch() {
+        boolean allPositive = Stream.of(1,2,3,4,5)
+                                .allMatch(n -> n>0);
+        System.out.println("all positive: " + allPositive);
+    }
+
+    @Test
+    public void testAnyMatch() {
+        boolean anyMatch = Stream.of(1,2,3,4)
+                                .anyMatch(n -> n>5);
+        System.out.println("any match: " + anyMatch);
+    }
+
+    @Test
+    public void testFindAny() {
+        Optional<Integer> random = Stream.of(1,2,3)
+                                        .findAny();
+        System.out.println("findAny: " + random.orElse(10));
+    }
+
+    @Test
+    public void testFindFirst() {
+        Optional<Integer> first = Stream.of(2,1,3)
+                                        .findFirst();
+        System.out.println("first: " + first.orElse(10));
+    }
+
+    @Test
+    public void testLimit() {
+        Stream.of(1,2,3,4,5)
+            .limit(2)
+            .forEach(System.out::println);
+    }
+
+    @Test
+    public void testLimit1() {
+        Stream.generate(Math::random)
+            .limit(10)
+            .forEach(System.out::println);
+    }
+
+    class Employee {
+
+        String name;
+        int age;
+        double salary;
+        String department;
+
+        public Employee() {
+        }
+
+        public Employee(String name, int age, double salary, String department) {
+            this.name = name;
+            this.age = age;
+            this.salary = salary;
+            this.department = department;
+        }
+
+        public String getName() {
+            return name;
+        }
+
+        public void setName(String name) {
+            this.name = name;
+        }
+
+        public int getAge() {
+            return age;
+        }
+
+        public void setAge(int age) {
+            this.age = age;
+        }
+
+        public double getSalary() {
+            return salary;
+        }
+
+        public void setSalary(double salary) {
+            this.salary = salary;
+        }
+
+        public String getDepartment() {
+            return department;
+        }
+
+        public void setDepartment(String department) {
+            this.department = department;
+        }
+    }
+
 }
