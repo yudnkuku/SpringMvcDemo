@@ -11,7 +11,7 @@
     <name>Spring Mvc Demo</name>
 
     <properties>
-        <spring-version>4.3.17.RELEASE</spring-version>
+        <spring-version>5.3.18</spring-version>
         <commons-dbcp>1.4</commons-dbcp>
         <mysql-connector>5.1.46</mysql-connector>
         <jackson-version>2.9.5</jackson-version>
