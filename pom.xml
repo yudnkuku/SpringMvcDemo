@@ -13,7 +13,7 @@
     <properties>
         <spring-version>4.3.17.RELEASE</spring-version>
         <commons-dbcp>1.4</commons-dbcp>
-        <mysql-connector>5.1.46</mysql-connector>
+        <mysql-connector>8.0.28</mysql-connector>
         <jackson-version>2.9.5</jackson-version>
         <xstream-version>1.4.10</xstream-version>
         <hadoop-version>2.9.1</hadoop-version>
